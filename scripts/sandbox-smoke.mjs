@@ -16,7 +16,8 @@ try{
  if(action==='readiness'){
   assert.equal(health.json.saleActive,false);assert.equal(health.json.stripeMode,'test');
   assert.equal(health.json.apiEnabled,false);assert.equal(health.json.billingEnabled,false);assert.equal(health.json.billingVerified,false);
-  const spec=await request('/openapi.json');assert.equal(spec.status,200);assert.equal(spec.json.openapi,'3.1.0');
+  const spec=await request('/openapi.json');assert.equal(spec.status,200);assert.equal(spec.json.openapi,'3.1.0');assert.ok(spec.json.paths?.['/v1/stripe/meter-webhook']);
+  const meter=await request('/v1/stripe/meter-webhook',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});assert.equal(meter.status,503);assert.equal(meter.json.error,'billing_unavailable');
   console.log(JSON.stringify({action,checks:output,apiEnabled:false,billingEnabled:false,billingVerified:false,stripeMode:health.json.stripeMode,saleActive:false}));
  }else{
   assert.equal(process.env.RECALM_SANDBOX_E2E,'true');assert.equal(health.json.stripeMode,'test');assert.equal(health.json.apiEnabled,true);assert.equal(health.json.billingEnabled,true);assert.equal(health.json.saleActive,false);

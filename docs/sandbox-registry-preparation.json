@@ -1,0 +1,11 @@
+{
+  "BILLING_ACCOUNTS": {
+    "sandbox-e2e-20261013": {
+      "customerId": "cus_VQrJWHFdsVqzJG"
+    }
+  },
+  "API_ENABLED": "false",
+  "BILLING_ENABLED": "false",
+  "BILLING_VERIFIED": "false",
+  "STRIPE_MODE": "test"
+}
