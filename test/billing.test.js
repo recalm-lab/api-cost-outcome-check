@@ -136,3 +136,59 @@ test('cash settlement after meter hold records verified payment while preserving
  await service.webhook({id:'evt_held_invoice_paid',type:'invoice.paid',data:{object:{id:'in_test'}}});
  assert.equal(one(s,'SELECT outstanding FROM meter').outstanding,0);assert.equal(one(s,'SELECT paid FROM meter').paid,50);assert.equal(state(s).requiresManual,true);assert.equal(state(s).collectionHold,true);assert.equal(state(s).active,false);s.db.close();
 });
+
+test('outbox uses real StripeClient fixed failure classes with stable retries only before 23 hours',async()=>{
+ const failures=[
+  async()=>new Response('synthetic-hidden-body',{status:429}),
+  async()=>new Response('synthetic-hidden-body',{status:500}),
+  async()=>{throw new Error('synthetic-accepted-response-lost');},
+  async()=>new Response('synthetic-invalid-json',{status:200})
+ ];
+ for(const fail of failures){
+  const s=storage();let now=ready(s),failing=true;const requests=[],accepted=new Set();
+  const api=new StripeClient(env,async(url,options)=>{
+   const params=Object.fromEntries(new URLSearchParams(options.body));
+   requests.push({url,method:options.method,body:options.body,key:options.headers['idempotency-key']});
+   accepted.add(params.identifier);
+   if(failing)return fail();
+   return Response.json(ack(params));
+  });
+  const service=new BillingService(s,api,'cus_test',()=>now);
+  try{
+   add(s,'retry-client',now);await service.flush();
+   const first=one(s,"SELECT * FROM calls WHERE id='retry-client'");
+   assert.equal(first.sendState,'sending');assert.equal(first.firstAttempt,now);assert.equal(first.attempts,1);
+   assert.ok(first.nextAttempt>now);assert.equal(state(s).requiresManual,false);
+   failing=false;now+=20;await service.flush();
+   const sent=one(s,"SELECT * FROM calls WHERE id='retry-client'");
+   assert.equal(sent.sendState,'sent');assert.equal(sent.firstAttempt,first.firstAttempt);assert.equal(sent.attempts,2);
+   assert.deepEqual(requests[0],requests[1]);assert.equal(requests[0].key,'meter:'+eventId('retry-client'));
+   assert.equal(new URLSearchParams(requests[0].body).get('payload[value]'),'1');
+   assert.equal(accepted.size,1);await service.flush();assert.equal(requests.length,2);
+   failing=true;add(s,'expiry-client',now);await service.flush();
+   const started=one(s,"SELECT * FROM calls WHERE id='expiry-client'");
+   now=started.firstAttempt+23*3600-1;await service.flush();
+   assert.equal(requests.length,4);assert.deepEqual(requests[2],requests[3]);
+   assert.equal(one(s,"SELECT firstAttempt FROM calls WHERE id='expiry-client'").firstAttempt,started.firstAttempt);
+   assert.equal(state(s).requiresManual,false);
+   now=started.firstAttempt+23*3600;
+   s.sql.exec("UPDATE calls SET nextAttempt=? WHERE id='expiry-client'",now);
+   await service.flush();assert.equal(requests.length,4);
+   assert.equal(one(s,"SELECT sendState FROM calls WHERE id='expiry-client'").sendState,'hold');
+   assert.equal(state(s).requiresManual,true);assert.equal(state(s).collectionHold,true);
+  }finally{s.db.close();}
+ }
+});
+test('outbox real StripeClient rejection and acknowledgement mismatch still require manual hold',async()=>{
+ for(const respond of [async()=>new Response('synthetic-private-body',{status:403}),async()=>Response.json({identifier:'wrong'})]){
+  const s=storage();const now=ready(s);let calls=0;
+  try{
+   add(s,'rejected-client',now);
+   const service=new BillingService(s,new StripeClient(env,async()=>{calls++;return respond();}),'cus_test',()=>now);
+   await service.flush();assert.equal(calls,1);
+   assert.equal(one(s,'SELECT sendState FROM calls').sendState,'hold');
+   assert.equal(state(s).requiresManual,true);assert.equal(state(s).collectionHold,true);
+   await service.flush();assert.equal(calls,1);
+  }finally{s.db.close();}
+ }
+});
