@@ -41,11 +41,23 @@ function failure(error,ambiguous=false){
   if(error instanceof BillingError)return json({error:error.message},error.status);
   return json(ambiguous?{error:'usage_state_unknown',usageStatus:'unknown',retry:'same_idempotency_key_and_identical_body'}:{error:'unavailable'},503);
 }
+function saleConfigured(env){
+  if(env.STRIPE_MODE!=='live'||['API_ENABLED','BILLING_ENABLED','BILLING_VERIFIED'].some(k=>env[k]!=='true'))return false;
+  try{
+    const config=billingConfig(env);
+    if(!env.ACCOUNTS||!/^[A-Za-z0-9_-]{43,128}$/.test(env.FINGERPRINT_SECRET||''))return false;
+    const registry=JSON.parse(env.CREDENTIALS);
+    if(!registry||Array.isArray(registry)||typeof registry!=='object')return false;
+    const entries=Object.entries(registry);
+    return entries.length>0&&entries.every(([key,value])=>/^[0-9a-f]{64}$/.test(key)&&value&&typeof value.enabled==='boolean'&&Number.isFinite(value.expiresAt)&&Number.isSafeInteger(value.maxMonthlySuccessfulCalls)&&value.maxMonthlySuccessfulCalls>=1&&value.maxMonthlySuccessfulCalls<=1000&&!!config.accounts[value.account]);
+  }catch{return false;}
+}
 export default {
   async fetch(request,env){
     const path=new URL(request.url).pathname;
     if(path==='/health'&&['GET','HEAD'].includes(request.method)){
-      const body={status:env.STRIPE_MODE==='test'?'sandbox':'preparing',stripeMode:['test','live'].includes(env.STRIPE_MODE)?env.STRIPE_MODE:'unconfigured',apiEnabled:env.API_ENABLED==='true',billingEnabled:env.BILLING_ENABLED==='true',billingVerified:env.BILLING_VERIFIED==='true',saleActive:false};
+      const saleActive=saleConfigured(env);
+      const body={status:env.STRIPE_MODE==='test'?'sandbox':saleActive?'live_enabled':'preparing',stripeMode:['test','live'].includes(env.STRIPE_MODE)?env.STRIPE_MODE:'unconfigured',apiEnabled:env.API_ENABLED==='true',billingEnabled:env.BILLING_ENABLED==='true',billingVerified:env.BILLING_VERIFIED==='true',saleActive};
       return request.method==='HEAD'?new Response(null,{status:200,headers:{'cache-control':'no-store'}}):json(body);
     }
     if(!path.startsWith('/v1/')){if(['GET','HEAD'].includes(request.method)&&env.ASSETS)return env.ASSETS.fetch(request);return json({error:'not_found'},404);}
