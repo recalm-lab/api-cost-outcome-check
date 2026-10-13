@@ -1,24 +1,20 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {DatabaseSync} from 'node:sqlite';
-import {initMeter,recordSuccess} from '../src/meter.js';
-function storage() {
-  const db=new DatabaseSync(':memory:');
-  return {db,sql:{exec(sql,...params){const stmt=db.prepare(sql);return sql.startsWith('SELECT')?stmt.all(...params):(stmt.run(...params),[]);}},transactionSync(fn){db.exec('BEGIN');try{const result=fn();db.exec('COMMIT');return result;}catch(e){db.exec('ROLLBACK');throw e;}}};
-}
-test('monthly reset preserves old receipt; hard cap, metadata only and atomic rollback',()=>{
-  const s=storage();initMeter(s);
-  assert.equal(recordSuccess(s,'hmac-key','hmac-body',1,'2026-10').status,200);
-  assert.equal(recordSuccess(s,'new-key','hmac-body',1,'2026-10').status,429);
-  const replay=recordSuccess(s,'hmac-key','hmac-body',1,'2026-11'); assert.equal(replay.replay,true); assert.equal(replay.monthlyCount,0);
-  assert.equal(recordSuccess(s,'new-key','hmac-body',1,'2026-11').monthlyCount,1);
-  assert.equal(recordSuccess(s,'hmac-key','different-body',1,'2026-11').status,409);
-  assert.deepEqual(s.db.prepare('SELECT * FROM periods ORDER BY period').all().map(r=>({...r})),[{period:'2026-10',count:1},{period:'2026-11',count:1}]);
-  assert.deepEqual(s.db.prepare('PRAGMA table_info(calls)').all().map(r=>r.name),['id','digest','version','period']);
-  const original=s.sql.exec;s.sql.exec=(sql,...args)=>{if(sql.startsWith('UPDATE meter'))throw new Error('synthetic-storage-failure');return original(sql,...args);};
-  assert.throws(()=>recordSuccess(s,'rollback-key','digest',1000,'2026-12'));
-  s.sql.exec=original;assert.equal(s.db.prepare('SELECT COUNT(*) AS count FROM calls WHERE id=?').get('rollback-key').count,0);
-  assert.equal(s.db.prepare('SELECT count FROM meter').get().count,2);
-  s.db.prepare('UPDATE meter SET count=100000').run();assert.equal(recordSuccess(s,'hard-cap-key','digest',1000,'2026-12').status,429);
-  s.db.close();
+import {recordSuccess,one,saveState,state} from '../src/meter.js';
+import {storage,ready,eventId} from './helpers.js';
+const record=(s,key,period='2026-10',now=ready(s,period),cap=1000)=>recordSuccess(s,key,'hmac-body',cap,period,now,eventId(key));
+test('fail closed without paid entitlement, receipt + liability + outbox atomically committed',()=>{
+ const s=storage();assert.equal(recordSuccess(s,'key','body',1000,'2026-10',1790812801,eventId('key')).status,503);const now=ready(s);
+ assert.equal(record(s,'key','2026-10',now).status,200);assert.equal(one(s,'SELECT outstanding FROM meter').outstanding,1);assert.equal(one(s,'SELECT sendState,unitAmount FROM calls').sendState,'queued');
+ const original=s.sql.exec;s.sql.exec=(sql,...args)=>{if(sql.startsWith('UPDATE meter'))throw new Error('synthetic-storage-failure');return original(sql,...args);};assert.throws(()=>record(s,'rollback','2026-10',now));s.sql.exec=original;assert.equal(one(s,'SELECT COUNT(*) AS count FROM calls').count,1);assert.equal(one(s,'SELECT outstanding FROM meter').outstanding,1);s.db.close();
+});
+test('month boundary does not erase outstanding debt; unknown previous invoice blocks new calls',()=>{
+ const s=storage(),now=ready(s);record(s,'old','2026-10',now);const next=ready(s,'2026-11');assert.equal(record(s,'new','2026-11',next).status,503);assert.equal(one(s,'SELECT outstanding FROM meter').outstanding,1);
+ assert.equal(recordSuccess(s,'old','hmac-body',1000,'2026-11',next,eventId('old')).replay,true);assert.equal(recordSuccess(s,'old','changed',1000,'2026-11',next,eventId('old')).status,409);s.db.close();
+});
+test('49 carried plus new usage stops at total 1000, without counting carry twice',()=>{
+ const s=storage(),now=ready(s);for(let i=0;i<49;i++)record(s,'old'+i,'2026-10',now+i);s.sql.exec("UPDATE calls SET invoiceId='in_old'");s.sql.exec("INSERT INTO invoices VALUES ('in_old',?,?,'paid',0)",now,now+100);
+ const next=ready(s,'2026-11');for(let i=0;i<951;i++)assert.equal(record(s,'new'+i,'2026-11',next+i).status,200);
+ assert.equal(record(s,'over','2026-11',next+1000).status,429);assert.equal(one(s,'SELECT outstanding FROM meter').outstanding,1000);assert.equal(one(s,"SELECT count FROM periods WHERE period='2026-11'").count,951);
+ saveState(s,{...state(s),collectionHold:true});assert.equal(record(s,'hold','2026-11',next+1001).status,503);s.db.close();
 });

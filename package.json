@@ -1,13 +1,13 @@
 {
   "name": "recalm-api-cost-check",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "test": "node --test",
+    "test": "node --test test/*.test.js",
     "bench": "node scripts/bench.mjs",
     "build:demo": "node scripts/build-demo.mjs && node scripts/build-dashboard-demo.mjs"
   },

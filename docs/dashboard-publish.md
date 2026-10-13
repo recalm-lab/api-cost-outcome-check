@@ -14,4 +14,6 @@
 
 本体の `wrangler.jsonc` は `AccountMeter` のSQLite Durable Objectとmigration `tag=v1,new_sqlite_classes=[AccountMeter]`、binding `ACCOUNTS` を必要とします。単一static bundleにこのDOはありません。DashboardのHello World経路だけで本体のmigrationを済ませたとは主張しません。本体はWranglerの検証済みconfigを使う経路を推奨します。
 
-既存権限でWranglerが使えない場合に**後で承認が必要**なCloudflare token権限: 対象accountに限定したWorkers Scripts:Edit、Workers KV/DOではSQLite DO namespace作成/管理に必要なWorkersスコープ、Account Settings:Read（Wrangler account探索）、必要なら既存workers.devの設定を参照できる権限。Zone/custom domain/R2/D1/Pages/他accountの権限は本体configに不要。正確なDashboard permission名称・DO migrationの認可は現行公式資料と対象アカウントで最終確認する。新tokenはここでは作成しない。Static公開にはこのtokenは不要。
+既存権限でWranglerが使えない場合に**後で承認が必要**な最小権限: Dashboardで本体Workerを先に作れば、対象accountの**そのWorkerだけWorkers Editor**。既存Workerへのdeploy/secret設定に必要なroleで、DOは実装Workerの権限を継承し専用DO/KV権限は不要。新WorkerをWranglerから作るならWorkers product-level Adminが必要なので、最小権限のため既存Dashboardから先に空Workerを作る方法を優先する。account_idをconfigへ明示し、Zone/routes/custom domain/R2/D1/KV/Pages/User-token-editの権限を付けない。旧Dashboardのlegacy Workers Scripts:Editはproduct-wide Editor相当なので、現行per-Worker Editorを優先する。新tokenは作成していない。安全な入力先は対象Worker Settings → Variables and Secrets のSecret型、または承認されたsecret管理/CIのmasked secret。チャット・GitHub本文・PC操作ログへ値を貼らない。
+
+公式根拠: [Workers roles](https://developers.cloudflare.com/workers/authorization/workers/)、[Durable Objects roles](https://developers.cloudflare.com/workers/authorization/durable-objects/)。2026-10-13確認。
