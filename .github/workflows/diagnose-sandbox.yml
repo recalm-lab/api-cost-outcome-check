@@ -21,3 +21,5 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: node scripts/diagnose-worker-access.mjs
+      - name: Assert public sandbox flags remain closed
+        run: node scripts/sandbox-smoke.mjs readiness
