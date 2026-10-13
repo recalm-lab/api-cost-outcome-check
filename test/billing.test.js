@@ -158,7 +158,7 @@ test('outbox uses real StripeClient fixed failure classes with stable retries on
    add(s,'retry-client',now);await service.flush();
    const first=one(s,"SELECT * FROM calls WHERE id='retry-client'");
    assert.equal(first.sendState,'sending');assert.equal(first.firstAttempt,now);assert.equal(first.attempts,1);
-   assert.ok(first.nextAttempt>now);assert.equal(state(s).requiresManual,false);
+   assert.ok(first.nextAttempt>now);assert.equal(!!state(s).requiresManual,false);
    failing=false;now+=20;await service.flush();
    const sent=one(s,"SELECT * FROM calls WHERE id='retry-client'");
    assert.equal(sent.sendState,'sent');assert.equal(sent.firstAttempt,first.firstAttempt);assert.equal(sent.attempts,2);
@@ -170,7 +170,7 @@ test('outbox uses real StripeClient fixed failure classes with stable retries on
    now=started.firstAttempt+23*3600-1;await service.flush();
    assert.equal(requests.length,4);assert.deepEqual(requests[2],requests[3]);
    assert.equal(one(s,"SELECT firstAttempt FROM calls WHERE id='expiry-client'").firstAttempt,started.firstAttempt);
-   assert.equal(state(s).requiresManual,false);
+   assert.equal(!!state(s).requiresManual,false);
    now=started.firstAttempt+23*3600;
    s.sql.exec("UPDATE calls SET nextAttempt=? WHERE id='expiry-client'",now);
    await service.flush();assert.equal(requests.length,4);
