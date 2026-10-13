@@ -32,3 +32,15 @@ upload resultのstartupMs=1は**startup時間**で、請求照合requestのCPU�
 - 原本テストキー:同じapi repoのActions encrypted secret RECALM_TEST_API_KEYへ本人が直接保存する。モデル/ログ/repo filesへ表示しない。
 
 入力完了後のみ、sandbox試験としてAPI_ENABLED/BILLING_ENABLEDをtrueにし、BILLING_VERIFIED=falseを維持してCheckout/署名/計量/回収/解約を検証する。liveに切り替えず、price/product/planを重複作成しない。追加scopeが必要なら操作/HTTP/error codeを報告して止める。
+
+
+## 2026-10-13 07:23 UTC 修正版sandbox配置
+
+公開URL: https://recalm-api-cost-check.rough-sound-e8d7.workers.dev
+
+- 配置SHA: `c09e34f0aa196de4ee2902bf5b4574a32b983c82`（runtime修正bbd2474 + closed probe/非秘密registry準備）。
+- 公式PUT run: https://github.com/recalm-lab/api-cost-outcome-check/actions/runs/38362209929 。46/46 tests、compile、upload成功。既存Secret binding保持、SQLite維持、exports追加なし、route/domain変更なし。startup 2msはリクエストCPU測定ではない。直後のreadinessは新OpenAPI反映前に失敗し、このrunの総合結果はfailure。
+- 再deployせず診断: https://github.com/recalm-lab/api-cost-outcome-check/actions/runs/38362300836 。07:23:11 UTCにhealth200、OpenAPI200（新meter routeあり）、POST空JSON `/v1/stripe/meter-webhook` 503 billing_unavailable、全3flagsfalse、mode test、saleActivefalseを確認しsuccess。署名やSecret値は取得していない。
+- bindings照合はSecretの名前/型の保持を確認したもの。値比較ではない。専用Secret欠落/共有時の課金開始拒否はworkerdテストで検証。公開probeは停止設定の入口拒否であり、Secretの有無や実署名検証の証拠ではない。
+- customer/account対応の非秘密準備はsandbox-registry-preparation.json。秘密CREDENTIALSは本人のローカル補助HTMLからWorkerへ直接保存する。対応JSON/registryをWorkerへ適用しておらず、契約作成も行っていない。
+- thin/snapshotの2宛先と専用Secret、sandbox E2E、実リクエストCPU、本番決済・提供導線の検証が残る。販売停止維持。
