@@ -11,7 +11,7 @@ const token='synthetic_test_credential_'.padEnd(50,'x');
 const token2='second_synthetic_test_credential_'.padEnd(50,'x');
 const credentials = Object.fromEntries([token,token2].map((t,i)=>[createHash('sha256').update(t).digest('hex'),{account:i?'other-account':'test-account',enabled:true,expiresAt:Date.now()+3600000,maxMonthlySuccessfulCalls:5}]));
 const modules=await Promise.all(['worker','reconcile','meter','stripe','billing'].map(async name=>({type:'ESModule',path:resolve('src/'+name+'.js'),contents:await readFile('src/'+name+'.js','utf8')})));
-function runtime(persist,bindings={},provider=stripeMock()) { return new Miniflare({name:'test-api',modules,compatibilityDate:'2026-07-30',durableObjects:{ACCOUNTS:{className:'AccountMeter',useSQLite:true}},durableObjectsPersist:persist,serviceBindings:{STRIPE_HTTP:provider.fetch},bindings:{...billingEnv,API_ENABLED:'true',CREDENTIALS:JSON.stringify(credentials),FINGERPRINT_SECRET:'synthetic-test-only-fingerprint-secret'.padEnd(50,'x'),...bindings}}); }
+function runtime(persist,bindings={},provider=stripeMock()) { return new Miniflare({name:'test-api',modules,compatibilityDate:'2026-07-30',durableObjects:{ACCOUNTS:{className:'AccountMeter',useSQLite:true}},durableObjectsPersist:persist,serviceBindings:{STRIPE_HTTP:provider.fetch},bindings:Object.fromEntries(Object.entries({...billingEnv,API_ENABLED:'true',CREDENTIALS:JSON.stringify(credentials),FINGERPRINT_SECRET:'synthetic-test-only-fingerprint-secret'.padEnd(50,'x'),...bindings}).filter(([,value])=>value!==undefined))}); }
 
 const req=(body=normal,key='synthetic-call-0001',bearer=token)=>({method:'POST',headers:{authorization:'Bearer '+bearer,'content-type':'application/json','idempotency-key':key},body:typeof body==='string'?body:JSON.stringify(body)});
 async function activate(mf,bearer=token){
@@ -116,4 +116,52 @@ test('thin no_meter_found without related object conservatively holds accounts; 
   assert.equal((await mf.dispatchFetch('https://test/v1/stripe/meter-webhook',{method:'POST',headers:{'stripe-signature':`t=${t},v1=${sig}`},body})).status,200);
   assert.equal((await mf.dispatchFetch('https://test/v1/check',req())).status,503);
  }finally{await mf.dispose();}
+});
+
+test('workerd renewed synthetic credential shares account receipts and cap and can cancel after old credential expires',async()=>{
+ const renewed='renewed_synthetic_test_credential_'.padEnd(50,'x'),oldHash=createHash('sha256').update(token).digest('hex'),newHash=createHash('sha256').update(renewed).digest('hex');
+ const updated=structuredClone(credentials);updated[oldHash].expiresAt=0;updated[newHash]={...credentials[oldHash],expiresAt:Date.now()+3600000};
+ const persist=await mkdtemp(join(tmpdir(),'recalm-renewal-workerd-'));let mf=runtime(persist);
+ try{
+  await activate(mf);
+  const first=await mf.dispatchFetch('https://test/v1/check',req(normal,'renewal-shared-receipt'));assert.equal(first.status,200);assert.equal((await first.json()).usage.billableCalls,1);
+  await mf.dispose();mf=runtime(persist,{CREDENTIALS:JSON.stringify(updated)});
+  assert.equal((await mf.dispatchFetch('https://test/v1/check',req(normal,'renewal-shared-receipt',token))).status,401);
+  const replay=await mf.dispatchFetch('https://test/v1/check',req(normal,'renewal-shared-receipt',renewed));assert.equal(replay.status,200);
+  const replayBody=await replay.json();assert.equal(replayBody.usage.billableCalls,0);assert.equal(replayBody.usage.successfulCallsThisMonth,1);
+  for(let i=0;i<4;i++)assert.equal((await mf.dispatchFetch('https://test/v1/check',req(normal,'renewal-new-call-'+i,renewed))).status,200);
+  assert.equal((await mf.dispatchFetch('https://test/v1/check',req(normal,'renewal-over-cap',renewed))).status,429);
+  assert.equal((await mf.dispatchFetch('https://test/v1/cancel',req({},'renewal-cancel-key',renewed))).status,202);
+  const billing=await (await mf.dispatchFetch('https://test/v1/billing',{headers:{authorization:'Bearer '+renewed}})).json();
+  assert.equal(billing.cancelRequested,true);assert.equal(billing.active,false);assert.equal(billing.outstandingJpy,5);
+  const after=await (await mf.dispatchFetch('https://test/v1/check',req(normal,'renewal-shared-receipt',renewed))).json();assert.equal(after.usage.billableCalls,0);assert.equal(after.usage.successfulCallsThisMonth,5);
+  assert.equal((await mf.dispatchFetch('https://test/v1/check',req(normal,'renewal-after-cancel',renewed))).status,503);
+ }finally{await mf.dispose();await rm(persist,{recursive:true,force:true});}
+});
+
+test('health saleActive requires live, three flags and local settings without Stripe calls or secret disclosure',async()=>{
+ const live={...billingEnv,STRIPE_MODE:'live',STRIPE_RESTRICTED_KEY:'rk_live_synthetic_only_not_a_real_key',API_ENABLED:'true',BILLING_ENABLED:'true',BILLING_VERIFIED:'true'};
+ const cases=[
+  [live,true],
+  ...['API_ENABLED','BILLING_ENABLED','BILLING_VERIFIED'].flatMap(key=>[[{...live,[key]:'false'},false],[{...live,[key]:undefined},false]]),
+  [{...live,STRIPE_MODE:'test',STRIPE_RESTRICTED_KEY:billingEnv.STRIPE_RESTRICTED_KEY},false],
+  ...['STRIPE_RESTRICTED_KEY','STRIPE_WEBHOOK_SECRET','STRIPE_METER_WEBHOOK_SECRET','STRIPE_ACCOUNT_ID','STRIPE_PRICE_ID','STRIPE_METER_ID','STRIPE_EVENT_NAME','TERMS_VERSION','PUBLIC_BASE_URL','BILLING_ACCOUNTS'].map(key=>[{...live,[key]:''},false]),
+  [{...live,STRIPE_RESTRICTED_KEY:billingEnv.STRIPE_RESTRICTED_KEY},false],
+  [{...live,STRIPE_METER_WEBHOOK_SECRET:webhookSecret},false],
+  [{...live,FINGERPRINT_SECRET:''},false],
+  [{...live,CREDENTIALS:'broken'},false],
+  [{...live,CREDENTIALS:'{}'},false],
+  [{...live,CREDENTIALS:JSON.stringify({bad:credentials[Object.keys(credentials)[0]]})},false],
+  ...[{account:'toString'},{account:'missing-account'},{account:''},{maxMonthlySuccessfulCalls:1001},{expiresAt:'unknown'},{enabled:'true'}].map(extra=>[{...live,CREDENTIALS:JSON.stringify({[Object.keys(credentials)[0]]:{...credentials[Object.keys(credentials)[0]],...extra}})},false])
+ ];
+ for(const [bindings,expected]of cases){
+  const provider=stripeMock(),mf=runtime(false,bindings,provider);
+  try{
+   const response=await mf.dispatchFetch('https://test/health');assert.equal(response.status,200);
+   const text=await response.text(),health=JSON.parse(text);assert.equal(health.saleActive,expected);
+   if(expected)assert.equal(health.status,'live_enabled');
+   assert.deepEqual(provider.calls,[]);
+   for(const secret of [bindings.STRIPE_RESTRICTED_KEY,bindings.STRIPE_WEBHOOK_SECRET,bindings.STRIPE_METER_WEBHOOK_SECRET,token])if(secret)assert.ok(!text.includes(secret));
+  }finally{await mf.dispose();}
+ }
 });

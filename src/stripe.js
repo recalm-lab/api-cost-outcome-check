@@ -15,7 +15,7 @@ export function billingConfig(env) {
 }
 // Small instance-based REST client; no SDK global keys or configurable external host.
 export class StripeClient {
-  constructor(env,fetcher){this.env=env;this.config=billingConfig(env);this.fetcher=fetcher||(env.STRIPE_MODE==='test'&&env.STRIPE_HTTP?env.STRIPE_HTTP.fetch.bind(env.STRIPE_HTTP):fetch);}
+  constructor(env,fetcher){this.env=env;this.config=billingConfig(env);this.fetcher=fetcher||(env.STRIPE_MODE==='test'&&env.STRIPE_HTTP?env.STRIPE_HTTP.fetch.bind(env.STRIPE_HTTP):globalThis.fetch.bind(globalThis));}
   async request(method,path,params={},key){
     if(!/^\/v1\/[A-Za-z0-9_/?=&%.[\]-]+$/.test(path))throw new BillingError();
     const encoded=new URLSearchParams(Object.entries(params).map(([k,v])=>[k,String(v)]));
@@ -23,10 +23,13 @@ export class StripeClient {
     const url='https://api.stripe.com'+path+(method==='GET'&&encoded.size?(path.includes('?')?'&':'?')+encoded:'');
     const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),5000);
     try{
-      const response=await this.fetcher(url,{method,headers:{...headers,...(method==='GET'?{}:{'content-type':'application/x-www-form-urlencoded'})},...(method==='GET'?{}:{body:encoded.toString()}),signal:controller.signal});
-      if(!response.ok)throw new BillingError(response.status===429||response.status>=500?'stripe_retryable':'stripe_rejected',response.status===429||response.status>=500?503:502);
-      const body=await response.json();if(!body||typeof body!=='object')throw new BillingError();return body;
-    }catch(error){if(error instanceof BillingError)throw error;throw new BillingError('stripe_retryable');}finally{clearTimeout(timer);}
+      let response;try{response=await this.fetcher(url,{method,headers:{...headers,...(method==='GET'?{}:{'content-type':'application/x-www-form-urlencoded'})},...(method==='GET'?{}:{body:encoded.toString()}),signal:controller.signal});}catch{throw new BillingError('stripe_transport_error');}
+      if(response.status===429)throw new BillingError('stripe_rate_limited');
+      if(response.status>=500)throw new BillingError('stripe_upstream_unavailable');
+      if(!response.ok)throw new BillingError('stripe_rejected',502);
+      let body;try{body=await response.json();}catch{throw new BillingError('stripe_invalid_json',502);}
+      if(!body||typeof body!=='object')throw new BillingError();return body;
+    }finally{clearTimeout(timer);}
   }
 }
 export const METER_EVENTS=['v1.billing.meter.error_report_triggered','v1.billing.meter.no_meter_found'];

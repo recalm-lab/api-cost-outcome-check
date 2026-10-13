@@ -12,6 +12,9 @@ const service=await cf('/services/'+config.name);if(service.id!==config.name)thr
 const env=service.default_environment?.environment;if(env!=='production')throw new Error('unexpected_worker_environment');
 const bindingPath=`/services/${config.name}/environments/${env}/bindings`;
 const before=await cf(bindingPath);if(!Array.isArray(before))throw new Error('bindings_shape_unknown');
+// Never let a sandbox code upload overwrite an existing live or unidentified deployment.
+const modes=before.filter(b=>b.name==='STRIPE_MODE');
+if(modes.length!==1||modes[0].type!=='plain_text'||modes[0].text!=='test')throw new Error('existing_worker_not_sandbox');
 const known=['secret_text','secret_key','plain_text','json'];
 if(before.some(b=>!known.includes(b.type)&&!(b.type==='durable_object_namespace'&&b.name==='ACCOUNTS'&&b.class_name==='AccountMeter')))throw new Error('unreviewed_binding_stop');
 const secretNames=before.filter(b=>['secret_text','secret_key'].includes(b.type)).map(b=>b.name);

@@ -2,6 +2,15 @@ import {BillingError,objectId, validateMeterEvent, METER_EVENTS,subscriptionStat
 import {one,state,saveState} from './meter.js';
 const rows=(s,sql,...args)=>[...s.sql.exec(sql,...args)];
 const retryWindow=23*3600;
+// Only the documented no-currency cash state is eligible for small-invoice carry/waiver.
+// Currency maps, including zero balances, remain blocked until lifecycle behavior is verified.
+function emptyCashBalance(customer,customerId,livemode){
+  if(!customer||Array.isArray(customer)||typeof customer!=='object'||customer.id!==customerId||customer.livemode!==livemode||(customer.deleted!==undefined&&customer.deleted!==false)||!Object.hasOwn(customer,'cash_balance'))return false;
+  const cash=customer.cash_balance;
+  if(cash===null)return true;
+  return !!cash&&typeof cash==='object'&&!Array.isArray(cash)&&cash.object==='cash_balance'&&cash.customer===customerId&&cash.livemode===livemode&&(cash.customer_account===undefined||cash.customer_account===null)&&(cash.deleted===undefined||cash.deleted===false)&&Object.hasOwn(cash,'available')&&cash.available===null;
+}
+const emptyHistory=list=>!!list&&typeof list==='object'&&!Array.isArray(list)&&Array.isArray(list.data)&&list.data.length===0&&list.has_more===false;
 export class BillingService {
   constructor(storage,client,customerId,clock=()=>Math.floor(Date.now()/1000)){this.s=storage;this.client=client;this.c=client.config;this.customerId=customerId;this.now=clock;}
   hold(reason='billing_hold'){const b=state(this.s);saveState(this.s,{...b,active:false,collectionHold:true,holdReason:reason,requiresManual:b.requiresManual||['meter_delivery_unknown','meter_timestamp_expired','waiver_delivery_unknown','invoice_reconciliation_unknown','meter_error'].includes(reason)});}
@@ -26,7 +35,7 @@ export class BillingService {
       const customer=await this.client.request('GET','/v1/customers/'+this.customerId,{'expand[0]':'cash_balance'});
       const subs=await this.client.request('GET','/v1/subscriptions',{customer:this.customerId,status:'all',limit:2});
       const invoices=await this.client.request('GET','/v1/invoices',{customer:this.customerId,limit:1});
-      if(customer.deleted||customer.livemode!==this.c.livemode||customer.balance!==0||(customer.currency&&customer.currency!=='jpy')||customer.cash_balance||subs.data?.length||subs.has_more||invoices.data?.length||invoices.has_more)throw new BillingError('customer_not_dedicated');
+      if(!emptyCashBalance(customer,this.customerId,this.c.livemode)||customer.balance!==0||(customer.currency&&customer.currency!=='jpy')||!emptyHistory(subs)||!emptyHistory(invoices))throw new BillingError('customer_not_dedicated');
       const anchor=nextMonth(this.now()),expiresAt=Math.min(this.now()+3600,anchor-1);if(expiresAt<this.now()+1800)throw new BillingError('checkout_window_closed');
       const suffix=key.slice(0,8).split('').map(x=>String.fromCharCode(97+(x.charCodeAt(0)%26))).join('');
       action={status:'pending',firstAttempt:this.now(),expiresAt,params:{mode:'subscription',customer:this.customerId,'line_items[0][price]':this.c.priceId,'payment_method_collection':'always','subscription_data[billing_cycle_anchor]':anchor,'subscription_data[billing_mode][type]':'classic','subscription_data[proration_behavior]':'none','consent_collection[terms_of_service]':'required','custom_text[terms_of_service_acceptance][message]':'[利用条件]('+this.c.base+'/terms.html)に同意します。税込1円/成功call、UTC暦月後払い、50円未満繰越、解約時50円未満免除、未精算額を含め1,000円停止。',success_url:this.c.base+'/checkout-result.html',cancel_url:this.c.base+'/','integration_identifier':'recalm-cost-check-'+suffix,expires_at:expiresAt}};
@@ -145,7 +154,7 @@ export class BillingService {
         if(event.identifier!==row.eventId||event.event_name!==this.c.eventName||event.livemode!==this.c.livemode||event.payload?.stripe_customer_id!==this.customerId||String(event.payload?.value)!=='1')throw new BillingError('meter_ack_mismatch');
         this.s.sql.exec("UPDATE calls SET sendState='sent' WHERE id=?",row.id);
       }catch(error){
-        if(error instanceof BillingError&&error.message==='stripe_retryable')this.s.sql.exec('UPDATE calls SET nextAttempt=? WHERE id=?',this.now()+Math.min(3600,15*2**Math.min(row.attempts,8)),row.id);
+        if(error instanceof BillingError&&['stripe_retryable','stripe_rate_limited','stripe_upstream_unavailable','stripe_transport_error','stripe_invalid_json'].includes(error.message))this.s.sql.exec('UPDATE calls SET nextAttempt=? WHERE id=?',this.now()+Math.min(3600,15*2**Math.min(row.attempts,8)),row.id);
         else{this.s.sql.exec("UPDATE calls SET sendState='hold' WHERE id=?",row.id);this.hold('meter_delivery_unknown');}
       }
     }
@@ -189,9 +198,10 @@ export class BillingService {
     if(one(this.s,'SELECT id FROM calls WHERE invoiceId IS NULL LIMIT 1')||one(this.s,"SELECT id FROM invoices WHERE status!='paid' LIMIT 1")||b.pendingInvoice)return;
     const id='waive:'+b.subscriptionId;
     let action=one(this.s,'SELECT * FROM actions WHERE id=?',id);if(action&&JSON.parse(action.data).status==='done')return;
+    // Recheck cash funds even on ambiguous-response retries; the original action/key stays stable.
+    const customer=await this.client.request('GET','/v1/customers/'+this.customerId,{'expand[0]':'cash_balance'});
+    if(!emptyCashBalance(customer,this.customerId,this.c.livemode)||customer.currency!=='jpy'||(customer.balance!==meter.outstanding&&(!action||customer.balance!==0)))throw new BillingError('waiver_reconciliation_pending');
     if(!action){
-      const customer=await this.client.request('GET','/v1/customers/'+this.customerId,{'expand[0]':'cash_balance'});
-      if(customer.cash_balance||customer.currency!=='jpy'||customer.balance!==meter.outstanding)throw new BillingError('waiver_reconciliation_pending');
       this.s.sql.exec('INSERT INTO actions VALUES (?,?,?)',id,String(meter.outstanding),JSON.stringify({firstAttempt:this.now(),amount:meter.outstanding,status:'pending'}));action=one(this.s,'SELECT * FROM actions WHERE id=?',id);
     }
     const data=JSON.parse(action.data);if(this.now()-data.firstAttempt>=retryWindow)throw new BillingError('waiver_delivery_unknown');

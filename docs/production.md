@@ -1,6 +1,6 @@
 # 本番準備と操作の境界 — 0.3.0
 
-実装は揃ったが、実接続・本番CPU・提供導線の検証が終わるまで販売しない。API_ENABLED/BILLING_ENABLED/BILLING_VERIFIEDはすべてfalse。Stripe/Cloudflare本番key・顧客key・OAuth権限は作成していない。商品/価格作成と販売設定は親担当のStripe接続で行う。
+販売開始前のrunbook。sandbox実接続の確認結果は末尾の2026-10-13追記を参照。初期配置の3flagはすべてfalseだが、sandbox E2E時にはAPI_ENABLED/BILLING_ENABLED=true、BILLING_VERIFIED=falseで検証した。これはlive開始の承認・実行を意味しない。live商品/価格/Webhookと正式条件、live設定・提供導線の確認を終えるまで販売しない。
 
 ## 配置経路
 
@@ -43,3 +43,55 @@ storage rollback/PITRでreceipt・outbox・settlementが巻き戻ると外部送
 公式根拠: [Workers Free CPU/quota](https://developers.cloudflare.com/workers/platform/limits/)、[SQLite DO Free](https://developers.cloudflare.com/durable-objects/platform/pricing/)、[exports](https://developers.cloudflare.com/durable-objects/reference/durable-objects-migrations/)、[Workers permissions](https://developers.cloudflare.com/workers/authorization/workers/)、[DO permissions](https://developers.cloudflare.com/workers/authorization/durable-objects/)、[transactionSync](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/#transactionsync)。2026-10-13確認。
 
 限定認証設定の承認後の操作順は[sandbox-activation](sandbox-activation.md)。deploy tokenは実行環境の安全注入欄、Stripe/署名/HMAC/hash registryはWorker Secretへ入力し、混同しない。
+
+
+## 2026-10-13 確認済みsandbox実績と本番切替の設計案
+
+これは未発効の運用準備記録。ライブ設定・公開条件・credentialを変更する手順の実行記録ではない。追記前のbranch headは `dc481500de1c4d22240d2f7d989f165825e221eb` と一致した。本体の再配置は行っていない。
+
+### 確認済み実績
+
+対象はリカームサンドボックス `acct_1TqptzD1AvIZkMfK`。承認済み税込1円、月次後払い、50円未満繰越、解約時50円未満免除、月1000円と未精算総額1000円停止を維持した。
+
+- Worker E2E: 専用合成customerのCheckout完了、対象Webhook 200、成功1回の計量、同一key/本文retry増分0、変更本文409、meter受付とinvoice数量1を確認。既存cancel workflowを1回実行し、Stripe canceled・最終invoice数量1/回収0、既存自動処理の−1円adjustment/Stripe balance0、API未精算0/回収0/免除1を読み戻した。
+- [成功・retry・conflictの実行](https://github.com/recalm-lab/api-cost-outcome-check/actions/runs/38420958389/job/115377821874)、[解約実行](https://github.com/recalm-lab/api-cost-outcome-check/actions/runs/38422369133/job/115382770995)、[解約後状態](https://github.com/recalm-lab/api-cost-outcome-check/actions/runs/38420707095/job/115383865311)。
+- Stripe境界シミュレーション: 共有test clock `clock_1UPwxMD1AvIZkMfKCptEG9gM` のready・合成customer・livemode=falseを確認して10/1 00:00→01:00 UTCへ進めた。[49円invoice](https://dashboard.stripe.com/acct_1TqptzD1AvIZkMfK/test/invoices/in_1UQ7uaD1AvIZkMfK2fFkNfV3)は数量49/回収0/customer balance49。[1000円invoice](https://dashboard.stripe.com/acct_1TqptzD1AvIZkMfK/test/invoices/in_1UQ7udD1AvIZkMfK7chQt2kI)は数量1000/InvoicePayment paid1000/balance0。
+- 49円専用customer `cus_VQoavxGaZUgnF9` に公式UIからvalue1/timestamp1790816400を一度だけ送信。request `req_CPyt7BlVbyJO7L` 200、event `2a6bc90b-c403-48a4-9089-fa8eada08583`。今月数量1と繰越49/請求予定50を確認後、11/1 00:00→01:00 UTCへ進めた。[invoice](https://dashboard.stripe.com/acct_1TqptzD1AvIZkMfK/test/invoices/in_1UQ892D1AvIZkMfKTj1UnfBc)はtotal1/starting_balance49/amount_paid50/remaining0/ending_balance0、InvoicePayment `inpay_1UQ89zD1AvIZkMfKrw9AwvKm` paid50、customer balance0、clock ready。曖昧だった別50円customerのイベントは再送せず合否から除外した。
+- このStripe clock試験をWorker月境界E2Eとは扱わない。Workerは実時刻を用いる。月境界・支払失敗/解約50円回収・回収後同月cap維持・更新用合成credentialのaccount共有は既存mock/注入時刻/workerdで検証した。
+- [66テスト成功/失敗0・build/demo生成物一致](https://github.com/recalm-lab/api-cost-outcome-check/actions/runs/38428499439/job/115404135031)。最大16KiB/各40件/40段retry chain正常処理も含む。
+- 既存24時間/全デプロイ/全経路のCPU集計: Worker P50 0.99ms/P90 1.74ms/P99・P999 2.27ms、wall time P50 27.79ms/P90 138ms/P99・P999 249ms。DO CPU P50 4.09ms/P90 8.98ms/P99・P999 10.74ms。Worker139 invocations/Errors0、DO36 requests/Errors0。保存Observabilityは無効で、最大入力に紐付けた個別実環境CPU・cold/warm・保管件数増加時の実測は未完了。DOのCPU枠をWorker Free HTTP10msと混同しない。
+
+### 限定uploaderの最小設計案（一部コード準備済み・未配置）
+
+現行 `scripts/upload-existing-worker.mjs` はtest・3flag=falseをmetadataへ常に含めるため、live設定後の再実行でtestへ戻す危険がある。
+
+1. sandbox経路を維持し、既存bindingのSTRIPE_MODEをPUT前に読み取って `test` 以外なら停止する。mode不明・live・通常var対象不一致で書き込まない。既存live Workerにsandbox workflow/tagが向いても、変更前に拒否する回帰を追加する。
+2. 環境移行は通常のcode uploadから分け、明示したtarget mode・expected current mode・許可済み非秘密manifestを照合する。引数省略時のlive移行、失敗時のsandbox fallback、暗黙のmode変更をしない。移行の実行には別の本番開始承認が必要。
+3. 通常のcode uploadはmode・既存通常vars・flagsを保持し、設定移行は別工程にする。初回閉鎖配置は明示した閉鎖flagのみ扱う。Secret/HMAC/SQLite namespaceの保持を読み戻し、値は出力しない。route/domainは変更しない。
+4. live account/price/meter/event/origin/正式terms版/customer mappingを別manifestで固定する。test clock/customer/priceをliveへ流用せず、対象customer/objectのlivemodeと合成/実運用範囲を取り違えない。
+5. sandboxの既存account DOをlive請求先へ付け替えない。現行stateはmode/customer/price/meter/Stripe account変更を拒否する。liveは別のaccount識別子のDO instanceを使い、sandbox台帳・HMAC・namespace/classを保持する。credential/account対応は別確認が必要。
+
+### healthと販売表示の最小設計案（一部コード準備済み・未配置）
+
+現行healthはtest以外を `preparing`、saleActiveを常にfalseにしていた。準備コードではlocal設定の検証を含める。準備中のstatic demoはfalseのまま、本体の設定状態と区別する。
+
+- `saleActive` は少なくともSTRIPE_MODE=live、API_ENABLED/BILLING_ENABLED/BILLING_VERIFIED=true、承認済み正式条件版、対象を固定したbillingConfigの検証成功を満たす場合だけtrue。それ以外はfalse。healthはStripeへ回収・契約変更を発行せず、Secretや顧客一覧を返さない。
+- statusはsandbox/preparing/live_enabled等の「設定状態」を返し、外部接続検証・個別契約の利用可否を保証する表現にしない。個別契約状態は認証付きbillingで確認する。
+- 3flagのどれかfalse、mode/key-prefix/object/terms不一致、config欠落でsaleActive=falseを確認する。BILLING_VERIFIEDは実検証の担当確認flagで、自動的にtrueにしない。
+- `TERMS_VERSION='2026-10-13'` の固定検査、公開terms、Checkout同意版、同意証跡を正式承認版に一致させる。価格・cap・未発効状態を勝手に変えない。publicの「未開始」「下書き」表示は正式発効の別承認後にのみ変更する。
+
+### live準備の残件と本人入力
+
+2026-10-13の別担当による独立読み取りでは、live `acct_1TqptlRUIufKFmuE` に本API用Product/Price/Webhookは未作成。既存の別商品・別サービスWebhookには触れない。live meter一覧はこの追記時点で未確認。
+
+本人に入力いただくlive SecretはSTRIPE_RESTRICTED_KEY、STRIPE_WEBHOOK_SECRET、STRIPE_METER_WEBHOOK_SECRETの3つを準備後にまとめて案内する。これだけで販売可能とは扱わない。live商品/価格/meter/2種類のWebhook設定、非秘密manifest、live専用customer/account/認証対応、正式条件、提供導線を別途整える。新キー生成・権限拡張・実決済は現在の準備範囲に含まない。
+
+
+### 追加の安全準備コード（再配置なし）
+
+- sandbox uploaderはPUT前の既存bindingsのSTRIPE_MODEが一意なplain_text/testの場合だけ進む。live・欠落・不明・異種binding・重複は `existing_worker_not_sandbox` でPUTゼロ。Secret値を読み取らず、既存Secret保持と読み戻しを維持する。
+- `scripts/deploy-existing-worker.mjs` は `legacy_deployment_disabled_use_scoped_uploader` で直ちに停止し、`deploy-sandbox.yml` の旧jobもfalse条件で無効化した。旧Wrangler経路は使用しない。
+- **古いSHA/既存sandboxタグの再実行には新しいガードは適用されない。** GitHub ActionsはそのSHAのworkflow/scriptを使う。live設定後は過去sandbox run/tagを再実行しない。新しいコードだけでは過去SHAの権限行使を止められないため、live開始前に既存deployment credentialの適用範囲・古いrunの実行権限を確認する。新しい権限やsecretを勝手に作らない。
+- health準備コードはlive＋3flags=true＋billingConfigとACCOUNTS/HMAC/credential registryのローカル構造検証成功時だけsaleActive=true。これは設定状態であり、外部接続や個別キーの有効期限・契約利用権の証明ではない。Stripe通信と秘密出力を行わず、static-only demoはfalseを維持する。
+- live-closed uploadは**設計のみ**。配置先が既にmode=live/3flags=falseであることを事前条件とし、mode・通常vars・Secret・SQLite bindingを保持するcode-only経路を想定する。test→live切替をuploadで行わず、target不明なら変更しない。今回はこの経路を実装・実行せず、実際のsandbox flagsも変更していない。
+- 正式条件は承認後に `docs/terms-draft.md` → `scripts/build-terms.mjs` → `public/terms.html` の既存経路で生成する。未承認本文の公開・発効は行わない。

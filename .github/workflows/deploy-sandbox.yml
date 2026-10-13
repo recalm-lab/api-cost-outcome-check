@@ -10,7 +10,8 @@ concurrency:
   cancel-in-progress: false
 jobs:
   deploy:
-    if: github.repository == 'recalm-lab/api-cost-outcome-check'
+    # Legacy unguarded Wrangler path is intentionally disabled.
+    if: ${{ false }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
