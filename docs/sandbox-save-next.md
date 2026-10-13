@@ -1,6 +1,8 @@
 # 残る本人操作（sandbox、販売停止維持）
 
-署名Secret2つは本人の保存完了報告を受領。値の取得・表示・比較は行わない。接続の最終確認はsigned webhookとsandbox E2Eで行う。存在だけで署名が正しいとは判定しない。
+**2026-10-13 20:42 UTCの診断では初回手順を止める:** FINGERPRINT_SECRET/CREDENTIALSは既にSecret名として存在する。API_ENABLED=true、BILLING_ENABLED=true、BILLING_VERIFIED=false、STRIPE_MODE=test、saleActive=false。依頼時点の未保存/全flagsfalseと差分があるため、以下の初回生成・上書きを実行せず、保存済み設定/実行状況を親担当へ引き継ぐ。RECALM_TEST_API_KEY名の存在はGitHub readで確認できていない。値の照会はしない。
+
+以下は未保存が別途確認された初回設定用の準備手順。署名Secret2つは本人の保存完了報告を受領。値の取得・表示・比較は行わない。接続の最終確認はsigned webhookとsandbox E2Eで行う。存在だけで署名が正しいとは判定しない。
 
 準備済み [単一ローカルHTML](https://github.com/recalm-lab/api-cost-outcome-check/blob/5c72dea4babaa2821f06b8e4da4b5a7d22bbb5f1/tools/offline-sandbox-setup.html) を **Download raw file** で保存し、本人PCでfile:として開く。zip/PC shell/npm不要。公式保存画面を準備してから「専用テスト値をPC内で生成」を1回だけ押す。モデル/操作担当へ値を渡さず、本人がcopyして直接保存する。
 
@@ -13,6 +15,6 @@
 
 非秘密対応は `sandbox-e2e-20261013` → `cus_VQrJWHFdsVqzJG`。HTMLに入力済みで4つ目のJSONをそのままcopyできる。registryのexpiryは本人が押した時刻+24時間、数値UTC epoch millisecondsで自動作成。maxMonthlySuccessfulCalls1000。HTMLのenabled:trueはcredential registry内の状態で、停止flagを解除しない。
 
-全保存後はページ内の値を消去して閉じ、保存完了だけを伝える。署名Secretやキーを再投稿しない。3flags API_ENABLED / BILLING_ENABLED / BILLING_VERIFIED はすべてfalse、STRIPE_MODE=testを維持。値の再生成や既存fingerprintの上書きはしない。
+全保存後はページ内の値を消去して閉じ、保存完了だけを伝える。署名Secretやキーを再投稿しない。初回設定では3flagsをすべてfalse、STRIPE_MODE=testとするが、現在の稼働設定はこの案内で変更しない。値の再生成や既存fingerprintの上書きはしない。
 
 この案内自体は生成・保存・契約・有効化を実行しない。既存fingerprint/registryが見つかった場合は初回用HTMLで上書きせず止める。本人保存後にSecret名のみ確認し、sandbox接続確認を行う。新しいStripe key・CF token・本番権限は不要。
