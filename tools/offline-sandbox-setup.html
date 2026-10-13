@@ -1,0 +1,63 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-ux55viFEbraSm5HYWk6ndXewNetS0RIH0c8+nqBORkU='; style-src 'sha256-VUq/IoiJcHYFRAheLszOo2iLw9KcHYj3WqfhYCNHhFU='; connect-src 'none'; img-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'"><title>Recalm — PC内だけのsandbox初期設定補助</title><style>body{font-family:system-ui,sans-serif;background:#f4f6f8;color:#182d38;margin:0;line-height:1.7}main{max-width:820px;margin:auto;padding:28px 22px}section{background:white;border:1px solid #c7d3db;padding:18px;margin:18px 0;border-radius:8px}input,textarea,button{font:inherit}input,textarea{box-sizing:border-box;width:100%;padding:9px;border:1px solid #8197a4;border-radius:4px}textarea{height:150px}button{padding:10px 16px;margin:8px 4px 8px 0;cursor:pointer}button:disabled{cursor:default;opacity:.55}code{overflow-wrap:anywhere}.clipboard{position:fixed;left:-9999px;top:0;opacity:0}#status{font-weight:700}small{display:block;color:#465c68}</style></head><body><main><h1>PC内だけのsandbox初期設定補助</h1><p>ダウンロードしたHTMLを本人のPCで開いて使います。外部通信・外部スクリプト・ログ・ブラウザ保存はありません。ボタンを押すまで生成しません。実データやStripe/Cloudflareキーを入力する欄はありません。</p><p><strong>初回の専用sandbox設定だけに使用。</strong>既存のfingerprintや利用済みregistryを置き換えないでください。保存先は同じ商品Worker・同じAPI repoです。</p><button id="generate" type="button">専用テスト値をPC内で生成</button><button id="clear" type="button">ページ内の値を消去</button><p id="status" role="status" aria-live="polite">ローカルファイルなら生成できます。</p><p id="expires"></p>
+<section><h2>1. テストAPIキー原本</h2><input id="test-key" type="password" readonly autocomplete="off" aria-label="生成したテストAPIキー原本"><button type="button" data-copy="test-key" data-destination="api-cost-outcome-check のGitHub Actions Secret RECALM_TEST_API_KEY">テストAPIキーをコピー</button><p>保存先: <code>recalm-lab/api-cost-outcome-check → Settings → Secrets and variables → Actions → New repository secret → RECALM_TEST_API_KEY</code>。WorkerのCREDENTIALSへ原本は貼りません。</p></section>
+<section><h2>2. 専用fingerprint</h2><input id="fingerprint" type="password" readonly autocomplete="off" aria-label="生成した専用fingerprint"><button type="button" data-copy="fingerprint" data-destination="recalm-api-cost-check のCloudflare Worker Secret FINGERPRINT_SECRET">fingerprintをコピー</button><p>保存先: <code>Cloudflare → recalm-api-cost-check → Settings → Variables and Secrets → Secret → FINGERPRINT_SECRET</code>。</p></section>
+<section><h2>3. SHA256・期限入りregistry JSON</h2><input id="registry" type="password" readonly autocomplete="off" aria-label="SHA256と数値期限を含むregistry（非表示）"><button type="button" data-copy="registry" data-destination="recalm-api-cost-check のCloudflare Worker Secret CREDENTIALS">registry JSONをコピー</button><p>保存先:同じWorkerの<code>Secret → CREDENTIALS</code>。accountは<code>sandbox-e2e-20261013</code>、期限は実行から24時間、上限は1000。SHA256とepoch値は自動計算します。既存registryがある場合は丸ごと上書きせず担当者へ伝えてください。</p></section>
+<section><h2>4. sandbox customerの対応（非秘密）</h2><label for="customer">用意済みの専用sandbox customer ID（cus_…）</label><input id="customer" type="text" autocomplete="off" spellcheck="false"><textarea id="mapping" readonly aria-label="customer対応JSON"></textarea><button type="button" data-copy="mapping" data-destination="recalm-api-cost-check のCloudflare通常変数 BILLING_ACCOUNTS">customer対応JSONをコピー</button><p>保存先:同じWorkerの通常変数<code>BILLING_ACCOUNTS</code>。専用IDは準備済みで入力不要です。invoice/balance/cash balance/livemodeの最終確認待ちで、有効化は担当者の検証後だけです。</p></section>
+<p>コピー後は本人が準備済みの公式設定画面へ直接貼り付けます。チャット・GitHubコード・ログへ貼りません。すべて保存するまでこのページを閉じたり再生成したりせず、最後にページ内の値を消去してください。クリップボードと公式保存先の処理はこのページと別です。</p><p>この補助はStripe/Cloudflareへ接続せず、webhookを作らず、設定を変更せず、請求・契約を開始しません。STRIPE_MODE=test、3flags=falseを維持して設定します。</p></main><script type="module">// Pure local Web Crypto only. No storage, network, logging or automatic invocation.
+export const SETUP_ACCOUNT='sandbox-e2e-20261013';
+export const SETUP_CUSTOMER='cus_VQrJWHFdsVqzJG';
+export const MAX_LIFETIME_MS=24*60*60*1000;
+export async function prepareLocalSetup(cryptoApi,now){
+ if(!cryptoApi?.getRandomValues||!cryptoApi?.subtle?.digest||!Number.isSafeInteger(now)||now<0)throw new Error('local_crypto_or_clock_unavailable');
+ const encode=bytes=>btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replaceAll('=','');
+ const first=new Uint8Array(32),second=new Uint8Array(32);cryptoApi.getRandomValues(first);cryptoApi.getRandomValues(second);
+ const testKey=encode(first),fingerprint=encode(second);first.fill(0);second.fill(0);
+ if(testKey===fingerprint)throw new Error('random_values_not_distinct');
+ const digest=await cryptoApi.subtle.digest('SHA-256',new TextEncoder().encode(testKey));
+ const hash=[...new Uint8Array(digest)].map(v=>v.toString(16).padStart(2,'0')).join('');
+ const expiresAt=now+MAX_LIFETIME_MS;if(!Number.isSafeInteger(expiresAt))throw new Error('invalid_expiry');
+ const credentials=JSON.stringify({[hash]:{account:SETUP_ACCOUNT,enabled:true,expiresAt,maxMonthlySuccessfulCalls:1000}},null,2);
+ return {testKey,fingerprint,credentials,expiresAt};
+}
+export function customerMapping(id){
+ if(typeof id!=='string'||!/^cus_[A-Za-z0-9]+$/.test(id))throw new Error('customer_id_required');
+ return JSON.stringify({[SETUP_ACCOUNT]:{customerId:id}},null,2);
+}
+
+
+const status=document.getElementById('status');
+const generate=document.getElementById('generate');
+const clear=document.getElementById('clear');
+const ids=['test-key','fingerprint','registry','mapping'];
+let busy=false,generated=false,generationEpoch=0;
+const offline=location.protocol==='file:';
+if(!offline){generate.disabled=true;status.textContent='このHTMLをPCへ保存し、ローカルファイルとして開いてください。Web上では生成しません。';}
+else if(!globalThis.crypto?.getRandomValues||!globalThis.crypto?.subtle){generate.disabled=true;status.textContent='このブラウザではWeb Cryptoを使えません。対応するPCブラウザでローカルファイルを開いてください。';}
+function empty(){generationEpoch++;for(const id of ids)document.getElementById(id).value='';document.getElementById('expires').textContent='';document.getElementById('customer').value=SETUP_CUSTOMER;for(const b of document.querySelectorAll('[data-copy]'))b.disabled=true;}
+empty();
+generate.addEventListener('click',async()=>{
+ if(!offline||busy||generated)return;const ticket=++generationEpoch;busy=true;generate.disabled=true;status.textContent='PC内で生成中…';
+ try{
+  const data=await prepareLocalSetup(globalThis.crypto,Date.now());if(ticket!==generationEpoch)return;
+  document.getElementById('test-key').value=data.testKey;document.getElementById('fingerprint').value=data.fingerprint;document.getElementById('registry').value=data.credentials;
+  document.getElementById('expires').textContent='有効期限 UTC: '+new Date(data.expiresAt).toISOString()+'（実行時から24時間）';
+  generated=true;document.getElementById('mapping').value=customerMapping(SETUP_CUSTOMER);for(const b of document.querySelectorAll('[data-copy]'))b.disabled=false;
+  status.textContent='生成しました。値を表示・送信せず、本人が各コピー先へ直接貼り付けてください。';
+ }catch{empty();status.textContent='生成できませんでした。値は出力しません。';}finally{busy=false;}
+});
+clear.addEventListener('click',()=>{empty();generate.disabled=true;status.textContent='このページ内の値を消去しました。コピー済みのクリップボードや保存先の値は別に残ります。';});
+document.getElementById('customer').addEventListener('input',event=>{
+ try{if(!generated)throw new Error();document.getElementById('mapping').value=customerMapping(event.target.value.trim());document.querySelector('[data-copy="mapping"]').disabled=false;}
+ catch{document.getElementById('mapping').value='';document.querySelector('[data-copy="mapping"]').disabled=true;}
+});
+async function copyLocal(value){
+ if(navigator.clipboard?.writeText){try{await navigator.clipboard.writeText(value);return;}catch{}}
+ const area=document.createElement('textarea');area.className='clipboard';area.setAttribute('aria-hidden','true');area.value=value;document.body.append(area);area.select();
+ try{if(!document.execCommand('copy'))throw new Error();}finally{area.value='';area.remove();}
+}
+for(const button of document.querySelectorAll('[data-copy]'))button.addEventListener('click',async()=>{
+ if(!offline||!generated||busy)return;const value=document.getElementById(button.dataset.copy).value;if(!value)return;
+ try{await copyLocal(value);status.textContent='コピーしました。'+button.dataset.destination+'へ本人が直接貼り付けてください。';}catch{status.textContent='コピーできませんでした。このページは値を表示・外部送信しません。対応するPCブラウザでローカルファイルを開いてください。';}
+});
+addEventListener('pagehide',empty);
+</script></body></html>
