@@ -93,3 +93,9 @@ test('paid receipt cannot be finalized again under another invoice ID or above l
  const s=storage(),start=ready(s)-100,end=1793491200;add(s,'call',start+100);s.sql.exec("UPDATE calls SET sendState='sent',invoiceId='in_old'");let writes=0;const inv=invoice(start,end,1,{id:'in_duplicate',status:'draft',amount_paid:0});saveState(s,{...state(s),pendingInvoice:inv.id,pendingSince:end+120,collectionHold:true});
  const service=new BillingService(s,client(async(method)=>{if(method==='POST')writes++;return inv;}),'cus_test',()=>end+120);await assert.rejects(()=>service.finalizePending(),e=>e.message==='invoice_overlap');assert.equal(writes,0);s.db.close();
 });
+
+test('sandbox can be tested with verified=false; missing flag and unverified live remain closed',()=>{
+ assert.equal(billingConfig({...env,BILLING_VERIFIED:'false'}).mode,'test');
+ const live={...env,STRIPE_MODE:'live',STRIPE_RESTRICTED_KEY:'rk_live_synthetic_only_not_a_real_key',BILLING_VERIFIED:'false'};assert.throws(()=>billingConfig(live));
+ const missing={...env};delete missing.BILLING_VERIFIED;assert.throws(()=>billingConfig(missing));
+});

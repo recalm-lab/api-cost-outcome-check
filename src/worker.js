@@ -44,6 +44,10 @@ function failure(error,ambiguous=false){
 export default {
   async fetch(request,env){
     const path=new URL(request.url).pathname;
+    if(path==='/health'&&['GET','HEAD'].includes(request.method)){
+      const body={status:env.STRIPE_MODE==='test'?'sandbox':'preparing',stripeMode:['test','live'].includes(env.STRIPE_MODE)?env.STRIPE_MODE:'unconfigured',apiEnabled:env.API_ENABLED==='true',billingEnabled:env.BILLING_ENABLED==='true',billingVerified:env.BILLING_VERIFIED==='true',saleActive:false};
+      return request.method==='HEAD'?new Response(null,{status:200,headers:{'cache-control':'no-store'}}):json(body);
+    }
     if(!path.startsWith('/v1/')){if(['GET','HEAD'].includes(request.method)&&env.ASSETS)return env.ASSETS.fetch(request);return json({error:'not_found'},404);}
     const allowed=['/v1/check','/v1/checkout','/v1/cancel','/v1/billing','/v1/stripe/webhook'];if(!allowed.includes(path))return json({error:'not_found'},404);
     if(request.method!==(path==='/v1/billing'?'GET':'POST'))return json({error:'method_not_allowed'},405);

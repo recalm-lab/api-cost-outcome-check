@@ -59,7 +59,7 @@ npm run build:demo
 
 ## 決済導線と未精算の扱い
 
-本体は `API_ENABLED`、`BILLING_ENABLED`、`BILLING_VERIFIED`、approved price/meter/customer、restricted key、webhook secret、顧客credential/HMACなどが揃わなければfail closedです。現在は3つのflagすべてfalse。初版は専用Stripe customerと顧客キーを承認後に手動発行する小規模の招待方式で、自動キー発行・顧客作成・price作成はありません。
+本体は `API_ENABLED`、`BILLING_ENABLED`、本番用の`BILLING_VERIFIED`、approved price/meter/customer、restricted key、webhook secret、顧客credential/HMACなどが揃わなければfail closedです。現在は3つのflagすべてfalse。承認済みsandbox試験ではSTRIPE_MODE=testとして前2つだけtrueにし、VERIFIED=falseのまま検証できます。本番modeはVERIFIED=trueになるまで拒否します。初版は専用Stripe customerと顧客キーを承認後に手動発行する小規模の招待方式で、自動キー発行・顧客作成・price作成はありません。
 
 `POST /v1/checkout` は `{ "termsVersion": "2026-10-13" }` と顧客Bearer/Idempotency-Keyを受け、Stripe-hostedの契約・支払方法登録URLを返します。成功ページで利用権を付与せず、署名検証済みwebhookとStripeの最新objectを確認します。請求anchorは**毎月1日00:00:00 UTC（日本時間09:00）**。初月は契約成立後から同じ月末までの成功利用だけを計量します。末尾の30分はCheckout生成を停止し、翌UTC月に再試行できます。初月・更新・解約時の実sandbox検証が発売条件です。
 
@@ -78,3 +78,5 @@ meter送信は安定event IDと保存済み状態で管理し、応答不明の�
 ## ライセンス
 
 [MIT](LICENSE)。合成例は顧客実績ではなく、需要・節約・返金・売上・SLAを保証しません。無料の確認で解決する場合はそこで終了できます。
+
+限定認証設定承認後の配置・入力先・非秘密値・稼働チェックは[sandbox接続手順](docs/sandbox-activation.md)を参照してください。CF deploy credentialとWorker runtime Secretは別の入力先です。

@@ -1,7 +1,7 @@
 export const STRIPE_VERSION = '2026-08-26.dahlia';
 export class BillingError extends Error { constructor(code='billing_unavailable',status=503){super(code);this.status=status;} }
 export function billingConfig(env) {
-  if(env.BILLING_ENABLED!=='true'||env.BILLING_VERIFIED!=='true')throw new BillingError();
+  if(env.BILLING_ENABLED!=='true'||!['true','false'].includes(env.BILLING_VERIFIED)||(env.STRIPE_MODE==='live'&&env.BILLING_VERIFIED!=='true'))throw new BillingError();
   const mode=env.STRIPE_MODE;
   if(!['test','live'].includes(mode)||!new RegExp('^rk_'+mode+'_[A-Za-z0-9_]{16,}$').test(env.STRIPE_RESTRICTED_KEY||'')||!/^whsec_[A-Za-z0-9_]{16,}$/.test(env.STRIPE_WEBHOOK_SECRET||''))throw new BillingError();
   if(!/^acct_[A-Za-z0-9]+$/.test(env.STRIPE_ACCOUNT_ID||'')||!/^price_[A-Za-z0-9]+$/.test(env.STRIPE_PRICE_ID||'')||!/^mtr_[A-Za-z0-9_]+$/.test(env.STRIPE_METER_ID||''))throw new BillingError();

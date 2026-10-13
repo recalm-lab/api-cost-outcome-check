@@ -4,7 +4,7 @@ Independent checkout: `/workspace/api-cost-outcome-check`. Base main: `99a50312d
 
 ## Test and build evidence
 
-- **30/30 tests pass** on Node v24.19.0 with fixed Miniflare4.20260730.0, actual workerd and SQLite. Stripe responses/credentials used by tests are synthetic, not real keys.
+- **32/32 tests pass** on Node v24.19.0 with fixed Miniflare4.20260730.0, actual workerd and SQLite. Stripe responses/credentials used by tests are synthetic, not real keys.
 - Reconciliation: original skill's three synthetic examples, currency/credits/evidence separation, failed retries, unknown joins, duplicate suspicion, top-up/balance exclusions, invalid schemas/UTF-8, no HTTP-status success inference, undefined ratios, exact16KiB/40 rows/40-step retry chain.
 - 20 parallel same-key/body calls:20 HTTP200, one new receipt/liability/outbox.12 distinct calls after one success under test cap5:4 HTTP200/8 HTTP429. Restart preserves count5 and original replay increments0.
 - Current billing integration tests drive mock Hosted Checkout and signed completion through real Worker/DO modules. Config, consent, keys, expiry, mode, price/meter and period mismatches fail closed. Success redirect alone does not grant access.
@@ -34,3 +34,7 @@ Actual workerd correctness at maximum input passes. After approved deployment, p
 ## Launch blockers
 
 Approved safe-input path for Worker-scoped CF Editor, sandbox restricted key, webhook signing secret and test customer/HMAC credentials; initial SQLite namespace/secret settings; real sandbox mid-month/renewal/carry/cancellation/grace/collection verification; Worker/DO CPU; final retention/refund/terms/disclosure operations; parent-owned live price/settings and end-to-end offering validation. API_ENABLED/BILLING_ENABLED/BILLING_VERIFIED remainfalse. No active sales URL is claimed.
+
+Sandbox activation preparation: explicit test mode can begin approved E2E with BILLING_VERIFIED=false; missing verification flag and unverified live remain closed. GET /health exposes only non-secret mode/flag metadata, never proves entitlement or live readiness. Wrangler keep_vars=true preserves Dashboard vars while declared activation flags reset false on deployment. scripts/deploy-existing-worker.mjs preflights exact existing Worker/account/closed flags; scripts/sandbox-smoke.mjs requires remote test mode and safe client injection for billable test calls, never prints keys/headers/bodies/Checkout/payment URLs. At preparation time, environment credential-presence booleans for CF deployment and client test key are both false; no secret values were inspected.
+
+CF credential destination is finalized as the target api repo Actions encrypted repository secret CLOUDFLARE_API_TOKEN, not Worker Secret or recalm-ops. Dedicated immutable deploy tags trigger the new workflow; normal push/fork PR do not deploy. Token is provided only to the final deploy step. Client sandbox smoke uses a separate RECALM_TEST_API_KEY repository secret and fixed logical test id, with no CF token in its job. No tag has yet been pushed and no secret value was requested/read.

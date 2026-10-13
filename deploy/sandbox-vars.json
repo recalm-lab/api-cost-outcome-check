@@ -1,0 +1,13 @@
+{
+  "API_ENABLED": "false",
+  "BILLING_ENABLED": "false",
+  "BILLING_VERIFIED": "false",
+  "STRIPE_MODE": "test",
+  "STRIPE_ACCOUNT_ID": "acct_1TqptzD1AvIZkMfK",
+  "STRIPE_PRICE_ID": "price_1UPwToD1AvIZkMfK9yFCs9xN",
+  "STRIPE_METER_ID": "mtr_test_61VZKPnRudfS37Kdz41D1AvIZkMfK1J2",
+  "STRIPE_EVENT_NAME": "recalm_api_cost_check_success_v1",
+  "TERMS_VERSION": "2026-10-13",
+  "PUBLIC_BASE_URL": "https://recalm-api-cost-check.rough-sound-e8d7.workers.dev",
+  "BILLING_ACCOUNTS": "{}"
+}

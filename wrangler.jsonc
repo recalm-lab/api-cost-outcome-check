@@ -18,7 +18,8 @@
   "vars": {
     "API_ENABLED": "false",
     "BILLING_ENABLED": "false",
-    "BILLING_VERIFIED": "false"
+    "BILLING_VERIFIED": "false",
+    "STRIPE_MODE": "test"
   },
   "durable_objects": {
     "bindings": [
@@ -34,5 +35,6 @@
       "storage": "sqlite"
     }
   },
-  "account_id": "9a2e48df6882d20c2d1c4398184215a9"
+  "account_id": "9a2e48df6882d20c2d1c4398184215a9",
+  "keep_vars": true
 }

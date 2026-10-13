@@ -54,7 +54,7 @@ PaymentIntents/Charges/Refunds/Products/PricesのWrite、payouts/bank/token/OAut
 
 `STRIPE_MODE=test/live`、`STRIPE_ACCOUNT_ID`、`STRIPE_PRICE_ID`、`STRIPE_METER_ID`、`STRIPE_EVENT_NAME=recalm_api_cost_check_success_v1`、`PUBLIC_BASE_URL`（HTTPS originのみ）、`TERMS_VERSION=2026-10-13`、`BILLING_ACCOUNTS={account:{customerId}}`（専用customerを重複せず32件以下）。顧客キーregistryとHMACも別承認後にSecretへ設定する。
 
-有効化flag `API_ENABLED/BILLING_ENABLED/BILLING_VERIFIED` は全て既定false。`BILLING_VERIFIED` は以下のsandbox/live実測が終わってから設定する担当者の確認flagで、コードやmetadataだけで検証完了にはならない。
+有効化flag `API_ENABLED/BILLING_ENABLED/BILLING_VERIFIED` は全て既定false。sandbox試験では前2つをtrueにし、STRIPE_MODE=test/BILLING_VERIFIED=falseのまま実接続を検証できる。liveではVERIFIED=trueが必要。`BILLING_VERIFIED` は以下のsandbox/live実測結果を確認してから設定する担当者の確認flagで、コードやmetadataだけで検証完了にはならない。
 
 ## 必須webhookとsandbox残件
 
@@ -63,3 +63,5 @@ PaymentIntents/Charges/Refunds/Products/PricesのWrite、payouts/bank/token/OAut
 実sandboxの初月・更新・UTC境界・meter処理遅延・card登録・49→翌月50・解約49免除/50回収・失敗・署名再送・期限を超えた送信不明・rollback/復旧を通して検証する。invoice.createdのhandlerが成功したときにauto_advance=falseになったことを確認する。他のwebhook receiverによるfinalizationやStripeのinvoice grace設定も確認し、アプリ未検証のinvoiceが先に回収される設定では売らない。既存sandbox customer/署名secret/RAKを安全に入力できる手段がなく、現時点では**real sandbox Checkout/subscription/collectionは未実行**。
 
 [Stripe meter event](https://docs.stripe.com/api/billing/meter-event/create)、[Billing anchor](https://docs.stripe.com/billing/subscriptions/billing-cycle)、[Meter summaryのminute境界](https://docs.stripe.com/api/billing/meter-event-summary/list)、[Customer invoice balance](https://docs.stripe.com/billing/customer/balance)、[InvoicePayment](https://docs.stripe.com/api/invoice-payment/object)、[解約時のinvoice回収停止](https://docs.stripe.com/api/subscriptions/cancel)、[RAK](https://docs.stripe.com/keys)。Stripe CLI 1.53.1のdocs取得はこの環境でForbiddenだったため、公式skillのreferences・接続済みStripe docs tool・公式Web docsで確認した。
+
+限定認証設定が承認された後の正確な入力先と値は[sandbox-activation](sandbox-activation.md)を参照。CF deploy token/クライアントtest keyは実行環境の安全な注入欄、Stripe/署名/HMAC/hash registryはWorker Secret。これらは異なる入力先。

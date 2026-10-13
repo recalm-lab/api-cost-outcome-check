@@ -83,3 +83,8 @@ test('workerd billing and all paid routes fail closed before configuration or ve
  const mf=runtime(false,{BILLING_ENABLED:'false'});try{for(const path of ['check','checkout','cancel'])assert.equal((await mf.dispatchFetch('https://test/v1/'+path,req())).status,503);}finally{await mf.dispose();}
  const pending=runtime(false);try{assert.equal((await pending.dispatchFetch('https://test/v1/check',req())).status,503);assert.equal((await pending.dispatchFetch('https://test/v1/stripe/webhook',{method:'POST',headers:{'stripe-signature':'bad'},body:'{}'})).status,400);}finally{await pending.dispose();}
 });
+
+test('workerd sandbox E2E starts without claiming billing verified or enabling live mode',async()=>{
+ const mf=runtime(false,{BILLING_VERIFIED:'false'});
+ try{const health=await (await mf.dispatchFetch('https://test/health')).json();assert.equal(health.stripeMode,'test');assert.equal(health.billingVerified,false);assert.equal(health.saleActive,false);await activate(mf);const response=await mf.dispatchFetch('https://test/v1/check',req());assert.equal(response.status,200);assert.equal((await response.json()).usage.billableCalls,1);}finally{await mf.dispose();}
+});

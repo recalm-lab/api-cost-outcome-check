@@ -7,7 +7,7 @@
 - 無料の説明・合成デモ・OpenAPI・利用条件下書きだけは、[単一Dashboard bundle](../public/dashboard-demo-worker.js)を既存商品WorkerのEdit codeへ貼る。[手順](dashboard-publish.md)。binding/secret/migrationなし、/v1/*は常に503。親PC担当が商品placeholder URLとFree accountを確認済み。
 - 本体は `wrangler.jsonc`。account_idを既存accountへ明示し、Worker名 `recalm-api-cost-check`、binding `ACCOUNTS` → `AccountMeter`、`exports.AccountMeter={type:"durable-object",storage:"sqlite"}`、assets binding `ASSETS`。現行exports方式をWrangler 4.149.0 dry-runで検証した。旧migrationsと混在させない。
 - 初回SQLite namespaceはclass exportとdeployment configで作成される。Dashboardの未作成namespace選択欄だけでは作成できない。既存商品Workerへのdeployなら、そのWorker限定のWorkers Editorが最小。新WorkerをWranglerから作るproduct-level Adminを避け、既存Dashboardで先に商品Workerを用意する。DO/KV/Zone専用権限は不要。wake/Gmail/ops Workerは変更しない。
-- この作業環境のWranglerは未認証。新tokenの作成は親の別承認後のみ。tokenとStripe/HMAC/customer key値はWorker Secret/承認済みmasked vaultへ直接入力し、チャット・GitHub・PC操作記録に貼らない。
+- この作業環境のWranglerは未認証。新tokenの作成は親の別承認後のみ。CF deploy tokenは対象api repoのActions repository secret CLOUDFLARE_API_TOKEN、Stripe/HMAC/hash registryはWorker Secretへ直接入力し、チャット・GitHub・PC操作記録に貼らない。
 
 ## 起動前の設定
 
@@ -16,7 +16,7 @@
 - Secret: STRIPE_RESTRICTED_KEY (`rk_test_` / `rk_live_`, mode一致)、STRIPE_WEBHOOK_SECRET、FINGERPRINT_SECRET（256-bit以上ランダム、base64url43..128文字）、CREDENTIALS（SHA-256 hex → account/enabled/expiresAt/maxMonthlySuccessfulCalls）。顧客keyは256-bit以上のbase64url、平文をregistryに保存しない。キー生成・発行は別承認。
 - 通常vars: STRIPE_MODE、STRIPE_ACCOUNT_ID、STRIPE_PRICE_ID、STRIPE_METER_ID、STRIPE_EVENT_NAME、TERMS_VERSION=2026-10-13、PUBLIC_BASE_URL（HTTPS originのみ）、BILLING_ACCOUNTS（account→専用customer、重複なし、最大32件）。Workersの1変数5KiB上限に収まる少人数で始める。
 - 同じaccountの全顧客keyに同じ契約cap（最大1000）・停止条件を適用。解約はDOのaccountを止め、既存keyの結果再取得/billing確認は期限内で可能。完全失効は全registry keyをdisabledにする。
-- API_ENABLED=falseのまま初回SQLiteとschema、secret/mode/object一致を確認。設定欠落はCheckout/利用/webhook/精算すべてfail closed。
+- API_ENABLED=falseのまま初回SQLiteとschema、secret/mode/object一致を確認。設定欠落はCheckout/利用/webhook/精算すべてfail closed。test modeはVERIFIED=falseのまま承認済みsandbox試験を開始でき、live modeではVERIFIED=trueが必要。
 - 最小tenantモデル: API専用Stripe customer、cash balanceなし、初期invoice balanceゼロ、既存subscription/invoiceなし。1 account/1 contractだけ。自動キー発行、一般の複数商品customer共有、再加入の自動移行は初版対象外で手動確認する。
 - Stripe Dashboardのterms URL/連絡先/販売者表示/税込価格と、公開したtermsページを一致させる。Hosted Checkoutは利用条件同意を必須とするが、このrepoの条件は未発効の下書き。残る保持・返金・責任等の条件を確定してからBILLING_VERIFIEDを立てる。
 
@@ -41,3 +41,5 @@ namespace/HMAC/algorithm v1を変えない。旧開発schemaはreceiptを保持�
 storage rollback/PITRでreceipt・outbox・settlementが巻き戻ると外部送信と一致しなくなる。**復旧時は3つのflagをfalseにし、Stripeとの突合まで自動再開しない。** 23時間を越えた不明送信を再実行せず、請求を保留する。アプリだけでStripeの永久重複保証を仮定しない。
 
 公式根拠: [Workers Free CPU/quota](https://developers.cloudflare.com/workers/platform/limits/)、[SQLite DO Free](https://developers.cloudflare.com/durable-objects/platform/pricing/)、[exports](https://developers.cloudflare.com/durable-objects/reference/durable-objects-migrations/)、[Workers permissions](https://developers.cloudflare.com/workers/authorization/workers/)、[DO permissions](https://developers.cloudflare.com/workers/authorization/durable-objects/)、[transactionSync](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/#transactionsync)。2026-10-13確認。
+
+限定認証設定の承認後の操作順は[sandbox-activation](sandbox-activation.md)。deploy tokenは実行環境の安全注入欄、Stripe/署名/HMAC/hash registryはWorker Secretへ入力し、混同しない。

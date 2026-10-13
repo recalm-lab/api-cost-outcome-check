@@ -1,0 +1,28 @@
+name: Check approved sandbox API
+on:
+  push:
+    tags:
+      - 'recalm-sandbox-smoke-*'
+permissions:
+  contents: read
+concurrency:
+  group: recalm-sandbox-smoke-logical-call
+  cancel-in-progress: false
+jobs:
+  smoke:
+    if: github.repository == 'recalm-lab/api-cost-outcome-check'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Validate approved sandbox call and retries
+        env:
+          RECALM_TEST_API_KEY: ${{ secrets.RECALM_TEST_API_KEY }}
+          RECALM_SANDBOX_E2E: 'true'
+          RECALM_SMOKE_IDEMPOTENCY_KEY: sandbox-smoke-v1-20261013
+        run: node scripts/sandbox-smoke.mjs check

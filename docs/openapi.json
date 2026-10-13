@@ -1505,6 +1505,54 @@
           }
         }
       }
+    },
+    "/health": {
+      "get": {
+        "operationId": "getDeploymentState",
+        "security": [],
+        "description": "Non-secret deployment flags only; not entitlement/Stripe/DO readiness proof. saleActive remains false in this development release. Static-only bundle has no stripeMode.",
+        "responses": {
+          "200": {
+            "description": "Sandbox/preparing metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "stripeMode": {
+                      "type": "string",
+                      "enum": [
+                        "test",
+                        "live",
+                        "unconfigured"
+                      ]
+                    },
+                    "apiEnabled": {
+                      "type": "boolean"
+                    },
+                    "billingEnabled": {
+                      "type": "boolean"
+                    },
+                    "billingVerified": {
+                      "type": "boolean"
+                    },
+                    "saleActive": {
+                      "const": false
+                    }
+                  },
+                  "required": [
+                    "stripeMode",
+                    "apiEnabled",
+                    "billingEnabled",
+                    "billingVerified",
+                    "saleActive"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
