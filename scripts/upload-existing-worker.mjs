@@ -1,7 +1,7 @@
 // Official Worker upload API, exact existing Worker only. Never fetches route/domain resources.
 import {readFile} from 'node:fs/promises';
 const config=JSON.parse(await readFile('wrangler.inline.jsonc','utf8'));
-if(config.name!=='recalm-api-cost-check'||config.account_id!=='9a2e48df6882d20c2d1c4398184215a9'||config.vars.STRIPE_MODE!=='test'||['API_ENABLED','BILLING_ENABLED','BILLING_VERIFIED'].some(k=>config.vars[k]!=='false')||config.routes||config.route||config.exports?.AccountMeter?.storage!=='sqlite')throw new Error('target_or_closed_flags_mismatch');
+if(config.name!=='recalm-api-cost-check'||config.account_id!=='9a2e48df6882d20c2d1c4398184215a9'||config.vars.STRIPE_MODE!=='test'||['API_ENABLED','BILLING_ENABLED','BILLING_VERIFIED'].some(k=>config.vars[k]!=='false')||config.routes||config.route||config.exports?.AccountMeter?.storage!=='sqlite'||config.exports?.AccountMeter?.type!=='durable-object'||Object.keys(config.exports||{}).length!==1||Object.keys(config.exports.AccountMeter).some(k=>!['type','storage'].includes(k))||Object.keys(config.vars).length!==4)throw new Error('target_or_closed_flags_mismatch');
 if(!process.env.CLOUDFLARE_API_TOKEN)throw new Error('approved_credential_missing');
 const base=`https://api.cloudflare.com/client/v4/accounts/${config.account_id}/workers`;
 async function cf(path,method='GET',body){
