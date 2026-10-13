@@ -15,8 +15,9 @@ try{
  const health=await request('/health');assert.equal(health.status,200);
  if(action==='readiness'){
   assert.equal(health.json.saleActive,false);assert.equal(health.json.stripeMode,'test');
+  assert.equal(health.json.apiEnabled,false);assert.equal(health.json.billingEnabled,false);assert.equal(health.json.billingVerified,false);
   const spec=await request('/openapi.json');assert.equal(spec.status,200);assert.equal(spec.json.openapi,'3.1.0');
-  console.log(JSON.stringify({action,checks:output,apiEnabled:health.json.apiEnabled===true,stripeMode:health.json.stripeMode||'static_only',saleActive:false}));
+  console.log(JSON.stringify({action,checks:output,apiEnabled:false,billingEnabled:false,billingVerified:false,stripeMode:health.json.stripeMode,saleActive:false}));
  }else{
   assert.equal(process.env.RECALM_SANDBOX_E2E,'true');assert.equal(health.json.stripeMode,'test');assert.equal(health.json.apiEnabled,true);assert.equal(health.json.billingEnabled,true);assert.equal(health.json.saleActive,false);
   const key=process.env.RECALM_TEST_API_KEY;if(!/^[A-Za-z0-9_-]{43,128}$/.test(key||''))throw new Error('client_test_key_not_injected');
