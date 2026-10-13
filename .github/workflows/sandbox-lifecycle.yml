@@ -1,0 +1,57 @@
+name: Manage approved sandbox Checkout
+on:
+  push:
+    tags:
+      - 'recalm-sandbox-checkout-*'
+      - 'recalm-sandbox-status-*'
+      - 'recalm-sandbox-cancel-*'
+# Only publish an immutable reviewed SHA tag after the parent review checkpoint.
+# Branch pushes run ordinary tests, never lifecycle calls. Do not move/reuse tags.
+permissions:
+  contents: read
+concurrency:
+  group: recalm-sandbox-lifecycle-account
+  cancel-in-progress: false
+jobs:
+  lifecycle:
+    if: github.repository == 'recalm-lab/api-cost-outcome-check'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Test reviewed code without runtime credentials
+        run: |
+          npm ci --ignore-scripts
+          npm test
+      - name: Select one explicit sandbox action
+        id: action
+        shell: bash
+        run: |
+          case "$GITHUB_REF_NAME" in
+            recalm-sandbox-checkout-*) echo 'action=checkout' >> "$GITHUB_OUTPUT" ;;
+            recalm-sandbox-status-*) echo 'action=status' >> "$GITHUB_OUTPUT" ;;
+            recalm-sandbox-cancel-*) echo 'action=cancel' >> "$GITHUB_OUTPUT" ;;
+            *) exit 1 ;;
+          esac
+      - name: Execute only the selected test action
+        env:
+          RECALM_TEST_API_KEY: ${{ secrets.RECALM_TEST_API_KEY }}
+          RECALM_SANDBOX_E2E: 'true'
+          RECALM_SANDBOX_ACCOUNT: sandbox-e2e-20261013
+        run: node scripts/sandbox-lifecycle.mjs ${{ steps.action.outputs.action }}
+      # Checkout URL is a capability. Never print it in logs or summaries.
+      # Download only from this repository's Actions artifact after approved run.
+      # It contains the one cs_test_ Checkout link, no API key/customer/card data.
+      - name: Retain sandbox Checkout link for authorized operator only
+        if: success() && steps.action.outputs.action == 'checkout'
+        uses: actions/upload-artifact@v6
+        with:
+          name: sandbox-checkout-link
+          path: sandbox-checkout-artifact/checkout-link.txt
+          if-no-files-found: error
+          retention-days: 1
