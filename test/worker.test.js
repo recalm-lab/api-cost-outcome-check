@@ -117,3 +117,24 @@ test('thin no_meter_found without related object conservatively holds accounts; 
   assert.equal((await mf.dispatchFetch('https://test/v1/check',req())).status,503);
  }finally{await mf.dispose();}
 });
+
+test('workerd renewed synthetic credential shares account receipts and cap and can cancel after old credential expires',async()=>{
+ const renewed='renewed_synthetic_test_credential_'.padEnd(50,'x'),oldHash=createHash('sha256').update(token).digest('hex'),newHash=createHash('sha256').update(renewed).digest('hex');
+ const updated=structuredClone(credentials);updated[oldHash].expiresAt=0;updated[newHash]={...credentials[oldHash],expiresAt:Date.now()+3600000};
+ const persist=await mkdtemp(join(tmpdir(),'recalm-renewal-workerd-'));let mf=runtime(persist);
+ try{
+  await activate(mf);
+  const first=await mf.dispatchFetch('https://test/v1/check',req(normal,'renewal-shared-receipt'));assert.equal(first.status,200);assert.equal((await first.json()).usage.billableCalls,1);
+  await mf.dispose();mf=runtime(persist,{CREDENTIALS:JSON.stringify(updated)});
+  assert.equal((await mf.dispatchFetch('https://test/v1/check',req(normal,'renewal-shared-receipt',token))).status,401);
+  const replay=await mf.dispatchFetch('https://test/v1/check',req(normal,'renewal-shared-receipt',renewed));assert.equal(replay.status,200);
+  const replayBody=await replay.json();assert.equal(replayBody.usage.billableCalls,0);assert.equal(replayBody.usage.successfulCallsThisMonth,1);
+  for(let i=0;i<4;i++)assert.equal((await mf.dispatchFetch('https://test/v1/check',req(normal,'renewal-new-call-'+i,renewed))).status,200);
+  assert.equal((await mf.dispatchFetch('https://test/v1/check',req(normal,'renewal-over-cap',renewed))).status,429);
+  assert.equal((await mf.dispatchFetch('https://test/v1/cancel',req({},'renewal-cancel-key',renewed))).status,202);
+  const billing=await (await mf.dispatchFetch('https://test/v1/billing',{headers:{authorization:'Bearer '+renewed}})).json();
+  assert.equal(billing.cancelRequested,true);assert.equal(billing.active,false);assert.equal(billing.outstandingJpy,5);
+  const after=await (await mf.dispatchFetch('https://test/v1/check',req(normal,'renewal-shared-receipt',renewed))).json();assert.equal(after.usage.billableCalls,0);assert.equal(after.usage.successfulCallsThisMonth,5);
+  assert.equal((await mf.dispatchFetch('https://test/v1/check',req(normal,'renewal-after-cancel',renewed))).status,503);
+ }finally{await mf.dispose();await rm(persist,{recursive:true,force:true});}
+});
