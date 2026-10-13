@@ -82,9 +82,9 @@ storage rollback/PITRでreceipt・outbox・settlementが巻き戻ると外部送
 
 ### live準備の残件と本人入力
 
-2026-10-13の別担当による独立読み取りでは、live `acct_1TqptlRUIufKFmuE` に本API用Product/Price/Webhookは未作成。既存の別商品・別サービスWebhookには触れない。live meter一覧はこの追記時点で未確認。
+2026-10-13の別担当による独立読み取りでは、live `acct_1TqptlRUIufKFmuE` に本API用Product/Price/Webhookは未作成。既存の別商品・別サービスWebhookには触れない。live meterは、その後の本人作成報告で本API用を作成済みと確認した（event_name recalm_api_cost_check_success_v1、sum/raw/default payload）。正確IDの本人貼付と対象live mode/設定の照合は待機中であり、直接読み戻し済みとは扱わない。重複作成は不要。
 
-本人に入力いただくlive SecretはSTRIPE_RESTRICTED_KEY、STRIPE_WEBHOOK_SECRET、STRIPE_METER_WEBHOOK_SECRETの3つを準備後にまとめて案内する。これだけで販売可能とは扱わない。live商品/価格/meter/2種類のWebhook設定、非秘密manifest、live専用customer/account/認証対応、正式条件、提供導線を別途整える。新キー生成・権限拡張・実決済は現在の準備範囲に含まない。
+本人に入力いただくlive SecretはSTRIPE_RESTRICTED_KEY、STRIPE_WEBHOOK_SECRET、STRIPE_METER_WEBHOOK_SECRETの3つを準備後にまとめて案内する。これだけで販売可能とは扱わない。live商品/価格/2種類のWebhook設定、作成済みmeterの正確ID確認、非秘密manifest、live専用customer/account/認証対応、正式条件、提供導線を別途整える。新キー生成・権限拡張・実決済は現在の準備範囲に含まない。
 
 
 ### 追加の安全準備コード（再配置なし）
@@ -95,3 +95,8 @@ storage rollback/PITRでreceipt・outbox・settlementが巻き戻ると外部送
 - health準備コードはlive＋3flags=true＋billingConfigとACCOUNTS/HMAC/credential registryのローカル構造検証成功時だけsaleActive=true。これは設定状態であり、外部接続や個別キーの有効期限・契約利用権の証明ではない。Stripe通信と秘密出力を行わず、static-only demoはfalseを維持する。
 - live-closed uploadは**設計のみ**。配置先が既にmode=live/3flags=falseであることを事前条件とし、mode・通常vars・Secret・SQLite bindingを保持するcode-only経路を想定する。test→live切替をuploadで行わず、target不明なら変更しない。今回はこの経路を実装・実行せず、実際のsandbox flagsも変更していない。
 - 正式条件は承認後に `docs/terms-draft.md` → `scripts/build-terms.mjs` → `public/terms.html` の既存経路で生成する。未承認本文の公開・発効は行わない。
+
+
+### 旧タスク文書整合の基点
+
+`3cf745f71416d0c64598091b0fabb4880324dee6` を取得して関連文書のみを整合した。[基点CI38465298320](https://github.com/recalm-lab/api-cost-outcome-check/actions/runs/38465298320)成功、70回帰と本体/ガードは保持。初回helper手順は[sandbox-save-next](sandbox-save-next.md)の過去資料として扱い、現在の再生成/上書き指示にしない。[診断と既存実証](sandbox-connection-evidence.md)を区別する。本人作成済みlive meterの正確ID確認待ち、未設定live Product/Price/Webhook、未発効規約、未設定live Secret3つを残件として維持する。
