@@ -11,7 +11,7 @@ export const TARGET = Object.freeze({
 });
 const fail = () => {throw new Error('sandbox_lifecycle_failed');};
 export function safeFailure(body) {
-  const allowed=new Set(['billing_unavailable','account_mismatch','catalog_mismatch','customer_not_dedicated','stripe_retryable','stripe_rejected','checkout_mismatch','checkout_window_closed','checkout_delivery_unknown','checkout_pending','checkout_capacity','existing_contract','manual_reconciliation_required','billing_configuration_changed','billing_account_missing','unauthorized','not_available','invalid_input','invalid_idempotency_key','unsupported_media_type','timeout','unavailable']);
+  const allowed=new Set(['billing_unavailable','account_mismatch','catalog_mismatch','customer_not_dedicated','stripe_retryable','stripe_rate_limited','stripe_upstream_unavailable','stripe_transport_error','stripe_invalid_json','stripe_rejected','checkout_mismatch','checkout_window_closed','checkout_delivery_unknown','checkout_pending','checkout_capacity','existing_contract','manual_reconciliation_required','billing_configuration_changed','billing_account_missing','unauthorized','not_available','invalid_input','invalid_idempotency_key','unsupported_media_type','timeout','unavailable']);
   return body && typeof body==='object' && !Array.isArray(body) && Object.hasOwn(body,'error') && allowed.has(body.error) ? body.error : 'unclassified';
 }
 export function validateContext(vars, account) {
