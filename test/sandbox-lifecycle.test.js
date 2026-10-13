@@ -27,8 +27,8 @@ test('Checkout retry uses one fixed key/body and rejects unsafe response URLs',a
   for(const url of ['https://checkout.stripe.com/c/pay/cs_live_fixture','https://checkout.stripe.com.evil.test/c/pay/cs_test_x','https://user:pass@checkout.stripe.com/c/pay/cs_test_x','http://checkout.stripe.com/c/pay/cs_test_x'])assert.throws(()=>validateCheckout({checkoutUrl:url,expiresAt:2000},now));
   assert.throws(()=>validateCheckout({checkoutUrl:'https://checkout.stripe.com/c/pay/cs_test_x',expiresAt:900},now));
 });
-test('hold, existing contract, cancellation and debt prohibit Checkout POST',async()=>{
-  for(const change of [{active:true},{hold:true},{manualReconciliationRequired:true},{cancelRequested:true},{outstandingJpy:1}]){const calls=[];await assert.rejects(execute('checkout',{vars,key,fetchImpl:mock([health,{...status,...change}],calls),now}));assert.equal(calls.length,2);}
+test('manual hold, existing contract, cancellation and debt prohibit Checkout POST',async()=>{
+  for(const change of [{active:true},{hold:true,manualReconciliationRequired:true},{manualReconciliationRequired:true},{cancelRequested:true},{outstandingJpy:1}]){const calls=[];await assert.rejects(execute('checkout',{vars,key,fetchImpl:mock([health,{...status,...change}],calls),now}));assert.equal(calls.length,2);}
 });
 test('status returns only whitelisted counters and booleans, no URLs or identifiers',async()=>{
   const calls=[];const result=await execute('status',{vars,key,fetchImpl:mock([health,status],calls)});assert.equal(calls.length,2);assert.equal(calls[1].options.method,'GET');assert.equal(JSON.stringify(result).includes('NEVER_OUTPUT'),false);assert.deepEqual(result.status,safeStatus(status));assert.throws(()=>safeStatus({...status,outstandingJpy:NaN}));
@@ -39,4 +39,9 @@ test('cancel is a separate single empty-JSON POST with acknowledgement only',asy
 test('ambiguous POST and HTTP errors are never retried or surfaced as raw bodies',async()=>{
   const calls=[];await assert.rejects(execute('checkout',{vars,key,fetchImpl:mock([health,status,new Error('SECRET_DO_NOT_LOG')],calls),now}),/sandbox_lifecycle_failed/);assert.equal(calls.length,3);
   let count=0;await assert.rejects(execute('status',{vars,key,fetchImpl:async()=>{count++;return new Response('PRIVATE_BODY',{status:403});}}),/sandbox_lifecycle_failed/);assert.equal(count,1);
+});
+
+test('initial collection hold permits first Checkout, without weakening server safeguards',async()=>{
+  const calls=[];const result=await execute('checkout',{vars,key,now,fetchImpl:mock([health,{...status,hold:true},{checkoutUrl:'https://checkout.stripe.com/c/pay/cs_test_initial#test',expiresAt:2000}],calls)});
+  assert.equal(calls.length,3);assert.equal(calls[2].url,TARGET.base+'/v1/checkout');assert.equal(result.status.hold,true);assert.equal(result.checkout.expiresAt,2000);
 });
