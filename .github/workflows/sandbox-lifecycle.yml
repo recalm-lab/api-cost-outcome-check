@@ -44,14 +44,5 @@ jobs:
           RECALM_SANDBOX_E2E: 'true'
           RECALM_SANDBOX_ACCOUNT: sandbox-e2e-20261013
         run: node scripts/sandbox-lifecycle.mjs ${{ steps.action.outputs.action }}
-      # Checkout URL is a capability. Never print it in logs or summaries.
-      # Download only from this repository's Actions artifact after approved run.
-      # It contains the one cs_test_ Checkout link, no API key/customer/card data.
-      - name: Retain sandbox Checkout link for authorized operator only
-        if: success() && steps.action.outputs.action == 'checkout'
-        uses: actions/upload-artifact@v6
-        with:
-          name: sandbox-checkout-link
-          path: sandbox-checkout-artifact/checkout-link.txt
-          if-no-files-found: error
-          retention-days: 1
+      # Public repository: no Checkout URL artifacts or summaries.
+      # Authorized operator opens the sandbox Session in Stripe Dashboard.
