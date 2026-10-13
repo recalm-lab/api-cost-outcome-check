@@ -19,6 +19,10 @@ export function initMeter(s){
   s.sql.exec('CREATE TABLE IF NOT EXISTS invoices (id TEXT PRIMARY KEY,start INTEGER NOT NULL,end INTEGER NOT NULL,status TEXT NOT NULL,paid INTEGER NOT NULL DEFAULT 0)');
   s.sql.exec('CREATE TABLE IF NOT EXISTS actions (id TEXT PRIMARY KEY,digest TEXT NOT NULL,data TEXT NOT NULL)');
   s.sql.exec('CREATE TABLE IF NOT EXISTS webhooks (id TEXT PRIMARY KEY,created INTEGER NOT NULL)');
+  s.sql.exec('CREATE INDEX IF NOT EXISTS calls_unassigned ON calls(invoiceId,createdAt)');
+  s.sql.exec('CREATE INDEX IF NOT EXISTS calls_time ON calls(createdAt)');
+  s.sql.exec('CREATE INDEX IF NOT EXISTS calls_outbox ON calls(sendState,nextAttempt,createdAt)');
+  s.sql.exec("CREATE INDEX IF NOT EXISTS invoices_unpaid ON invoices(status) WHERE status!='paid'");
 }
 export function recordSuccess(s,key,digest,cap,period,now,eventId){
   return s.transactionSync(()=>{

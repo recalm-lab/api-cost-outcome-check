@@ -15,3 +15,12 @@ test('static assets serve demo, OpenAPI, headers and no operational API',async()
     assert.equal(await readFile('public/reconcile.js','utf8'),await readFile('src/reconcile.js','utf8'));
   }finally{await mf.dispose();}
 });
+test('Dashboard pasteable single module contains demo/OpenAPI/terms and no live routes or bindings',async()=>{
+ const mf=new Miniflare({modules:true,script:await readFile('public/dashboard-demo-worker.js','utf8'),compatibilityDate:'2026-07-30'});
+ try{
+  assert.equal((await mf.dispatchFetch('https://demo/')).status,200);assert.equal((await mf.dispatchFetch('https://demo/openapi.json')).status,200);assert.equal((await mf.dispatchFetch('https://demo/terms.html')).status,200);
+  const health=await (await mf.dispatchFetch('https://demo/health')).json();assert.equal(health.apiEnabled,false);assert.equal(health.saleActive,false);
+  for(const path of ['check','checkout','cancel','stripe/webhook'])assert.equal((await mf.dispatchFetch('https://demo/v1/'+path,{method:'POST',body:'do not read this body'})).status,503);
+  assert.equal((await mf.dispatchFetch('https://demo/checkout-result.html')).status,200);
+ }finally{await mf.dispose();}
+});

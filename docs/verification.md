@@ -27,3 +27,19 @@ No Cloudflare connector tools are available in this session, no CLOUDFLARE/WRANG
 GitHub connector confirms `push/admin` access to this public repository. Clone and Git push are usable even though this environment's `gh api` returns Forbidden. Use the existing GitHub connector for the draft PR; no OAuth or token creation needed.
 
 Commercial conditions and seller display are reflected from explicit user approval. Real sales remain blocked on production credential approval, deployment/CPU tests, billing setup by the parent, legal/retention/refund details, seller-information disclosure operations, and end-to-end payment/entitlement/cancellation verification. No live sales URL is claimed.
+
+## 0.3.0 Billing continuation
+
+The initial 10-test pass and SHA above belong to the prior metering-only revision. The continuation implements Hosted Checkout, signed webhook lifecycle processing, invoice/carry/waiver verification, and a persistent metering outbox; it does not activate real sales.
+
+- Final full suite: **30/30 passed in 26.43s**, including the single Dashboard module and additive legacy-ledger migration.
+- Node unit tests use actual SQLite transactions and synthetic Stripe responses only. Workerd integration drives synthetic Hosted Checkout + signed completion through the real Worker/DO modules, then verifies concurrency, authentication, cancellation, persistence and response loss. No mock key is a real credential.
+- 49 carried liability plus 951 new calls reaches exactly JPY 1000; further calls return429. Unverified previous-period invoices stop new calls after month boundary. Carry is not counted twice. Settlement trusts signed notifications plus retrieved InvoicePayment records, not invoice.paid alone.
+- Persisted outbox survives accepted/lost response retry with the same event ID/body; first-attempt time is not reset. Beyond23h/unknown delivery stops automatic sending and billing. Automatic API receipt deduplication remains separate from that sender window.
+- Signed events are idempotent; canonical object retrieval avoids stale-event rollback. Wrong price/meter/mode/period, signature, consent or missing settings fails closed. Minute-aligned summaries and receipt/invoice overlap checks precede invoice finalization.
+- Cancellation is a local immediate stop with asynchronous provider settlement. Verified sub-50 balance is waived once; 50+ is not waived. Accepted/lost waiver response retries use the same operation ID and does not create a second local waiver.
+- Existing sandbox price read through the authorized Stripe connector confirms active JPY1 inclusive monthly metered price with the supplied meter ID; expanded product is now active. No real Checkout/customer/subscription/meter-event/collection request was performed in sandbox or live.
+- Wrangler4.149.0 dry-run with current **exports** SQLite declarations succeeds. Real deployment and Worker/DO CPU are still awaiting approved existing access/secrets and parent PC deployment. Parent's free placeholder URL exists; static demo completion is not claimed until verified separately.
+- Dashboard-pasteable static module contains no bindings/secrets/storage/billing and returns503 for every /v1/* path. /health explicitly reports apiEnabled=false/saleActive=false. It is reviewable in public/dashboard-demo-worker.js.
+
+Final configuration/build validation: runtime JavaScript syntax and git diff whitespace checks pass. Wrangler4.149.0 dry-run succeeds for the full exports/SQLite API config and static-only demo config with all three activation flags false. Final Dashboard module is 76,038 bytes, contains only static assets, requires no binding/migration/secret, and includes terms/checkout-information pages.

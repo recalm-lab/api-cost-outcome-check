@@ -9,7 +9,7 @@ export function stripeMock(){const calls=[],accepted=new Set();return {calls,acc
  let body;
  if(path==='/v1/account')body={id:'acct_test',charges_enabled:true,payouts_enabled:true};
  else if(path==='/v1/prices/price_test')body={...sub('cus_test').items.data[0].price,livemode:false,active:true,product:{active:true}};
- else if(path==='/v1/billing/meters/mtr_test')body={status:'active',event_name:billingEnv.STRIPE_EVENT_NAME,default_aggregation:{formula:'sum'},customer_mapping:{type:'by_id',event_payload_key:'stripe_customer_id'},value_settings:{event_payload_key:'value'},event_time_window:null};
+ else if(path==='/v1/billing/meters/mtr_test')body={id:'mtr_test',livemode:false,status:'active',event_name:billingEnv.STRIPE_EVENT_NAME,default_aggregation:{formula:'sum'},customer_mapping:{type:'by_id',event_payload_key:'stripe_customer_id'},value_settings:{event_payload_key:'value'},event_time_window:null};
  else if(path==='/v1/subscriptions')body={data:[],has_more:false};
  else if(path==='/v1/subscriptions/sub_test'||path==='/v1/subscriptions/sub_other')body=sub(path.endsWith('sub_other')?'cus_other':'cus_test');
  else if(path==='/v1/customers/cus_test'||path==='/v1/customers/cus_other')body={id:path.split('/').at(-1),livemode:false,balance:0,currency:'jpy',cash_balance:null};

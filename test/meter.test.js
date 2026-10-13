@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {recordSuccess,one,saveState,state} from '../src/meter.js';
+import {recordSuccess,one,saveState,state,initMeter} from '../src/meter.js';
 import {storage,ready,eventId} from './helpers.js';
 const record=(s,key,period='2026-10',now=ready(s,period),cap=1000)=>recordSuccess(s,key,'hmac-body',cap,period,now,eventId(key));
 test('fail closed without paid entitlement, receipt + liability + outbox atomically committed',()=>{
@@ -17,4 +17,12 @@ test('49 carried plus new usage stops at total 1000, without counting carry twic
  const next=ready(s,'2026-11');for(let i=0;i<951;i++)assert.equal(record(s,'new'+i,'2026-11',next+i).status,200);
  assert.equal(record(s,'over','2026-11',next+1000).status,429);assert.equal(one(s,'SELECT outstanding FROM meter').outstanding,1000);assert.equal(one(s,"SELECT count FROM periods WHERE period='2026-11'").count,951);
  saveState(s,{...state(s),collectionHold:true});assert.equal(record(s,'hold','2026-11',next+1001).status,503);s.db.close();
+});
+test('query guards use indexes at retained-ledger scale; legacy receipts are preserved and held',()=>{
+ const s=storage();const plan=s.db.prepare('EXPLAIN QUERY PLAN SELECT id FROM calls WHERE createdAt<? AND invoiceId IS NULL LIMIT 1').all(1790812900);assert.ok(plan.some(r=>r.detail.includes('calls_unassigned')));s.db.close();
+ // Simulate the original development schema without discarding its idempotency record.
+ const base=storage();const db=new base.db.constructor(':memory:');base.db.close();db.exec("CREATE TABLE calls(id TEXT PRIMARY KEY,digest TEXT NOT NULL,version TEXT NOT NULL,period TEXT NOT NULL); INSERT INTO calls VALUES('old','body','1','2026-10'); CREATE TABLE meter(id INTEGER PRIMARY KEY,count INTEGER NOT NULL); INSERT INTO meter VALUES(1,1)");
+ const old={sql:{exec(sql,...args){const stmt=db.prepare(sql);return /^(SELECT|PRAGMA)/.test(sql)?stmt.all(...args):(stmt.run(...args),[]);}}};
+ // init's migration runs only additive ALTER operations and conservative liabilities.
+ initMeter(old);assert.equal(one(old,'SELECT outstanding FROM meter').outstanding,1);assert.equal(one(old,'SELECT sendState FROM calls').sendState,'hold');assert.equal(one(old,'SELECT COUNT(*) AS count FROM calls').count,1);db.close();
 });

@@ -29,7 +29,7 @@ async function boundedBody(request,limit=LIMITS.bytes) {
   } finally { clearTimeout(timer); }
 }
 async function authenticate(request,env){
-  if(!env.CREDENTIALS||!env.FINGERPRINT_SECRET||!env.ACCOUNTS)throw new BillingError();
+  if(!env.CREDENTIALS||!env.ACCOUNTS||!/^[A-Za-z0-9_-]{43,128}$/.test(env.FINGERPRINT_SECRET||''))throw new BillingError();
   const auth=request.headers.get('authorization')||'';if(!/^Bearer [A-Za-z0-9_-]{43,128}$/.test(auth))throw new BillingError('unauthorized',401);
   let credential;try{credential=JSON.parse(env.CREDENTIALS)[await hash(auth.slice(7))];}catch{throw new BillingError();}
   if(!credential||credential.enabled!==true||!/^[a-zA-Z0-9_-]{1,64}$/.test(credential.account)||!Number.isFinite(credential.expiresAt)||credential.expiresAt<=Date.now())throw new BillingError('unauthorized',401);
