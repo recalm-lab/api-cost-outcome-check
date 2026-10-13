@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {TARGET, execute, validateContext, validateHealth, validateCheckout, safeStatus} from '../scripts/sandbox-lifecycle.mjs';
+import {TARGET, execute, validateContext, validateHealth, validateCheckout, safeStatus, safeFailure} from '../scripts/sandbox-lifecycle.mjs';
 const vars={STRIPE_MODE:'test',STRIPE_ACCOUNT_ID:TARGET.stripeAccount,PUBLIC_BASE_URL:TARGET.base,STRIPE_PRICE_ID:TARGET.price,STRIPE_METER_ID:TARGET.meter,TERMS_VERSION:TARGET.terms,BILLING_VERIFIED:'false'};
 const health={status:'sandbox',stripeMode:'test',saleActive:false,billingVerified:false,apiEnabled:true,billingEnabled:true};
 const status={outstandingJpy:0,collectedJpy:0,waivedJpy:0,active:false,cancelRequested:false,hold:false,manualReconciliationRequired:false,billingTimezone:'UTC',paymentUrl:'NEVER_OUTPUT_CAPABILITY'};
@@ -44,4 +44,9 @@ test('ambiguous POST and HTTP errors are never retried or surfaced as raw bodies
 test('initial collection hold permits first Checkout, without weakening server safeguards',async()=>{
   const calls=[];const result=await execute('checkout',{vars,key,now,fetchImpl:mock([health,{...status,hold:true},{checkoutUrl:'https://checkout.stripe.com/c/pay/cs_test_initial#test',expiresAt:2000}],calls)});
   assert.equal(calls.length,3);assert.equal(calls[2].url,TARGET.base+'/v1/checkout');assert.equal(result.status.hold,true);assert.equal(result.checkout.expiresAt,2000);
+});
+test('failure diagnostics classify only fixed codes and never retain arbitrary response data',async()=>{
+  assert.equal(safeFailure({error:'account_mismatch',key:'NEVER_LOG_KEY',url:'NEVER_LOG_URL'}),'account_mismatch');
+  for(const b of [{error:'SECRET_TOKEN'},{error:'https://checkout.stripe.com/c/pay/cs_test_secret'},null,[],{message:'SECRET_TOKEN'},Object.create({error:'account_mismatch'})])assert.equal(safeFailure(b),'unclassified');
+  let calls=0;await assert.rejects(execute('checkout',{vars,key,now,fetchImpl:async()=>{calls++;if(calls===1)return response(health);if(calls===2)return response(status);return new Response(JSON.stringify({error:'stripe_retryable',private:'NEVER_LOG_RESPONSE'}),{status:503});}}),/sandbox_lifecycle_failed/);assert.equal(calls,3);
 });
