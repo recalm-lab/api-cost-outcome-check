@@ -32,7 +32,7 @@ test('UTC anchor, approved price, metering and subscription lifecycle must align
 });
 test('hosted checkout exact approved price, calendar UTC anchor, explicit consent and no meter quantity',async()=>{
  const s=storage(),now=1790812900,calls=[];
- const provider=client(async(method,path,p,key)=>{calls.push({method,path,p,key});if(path==='/v1/account')return {id:'acct_test',charges_enabled:true,payouts_enabled:true};if(path==='/v1/prices/price_test')return {...subscription().items.data[0].price,livemode:false,active:true,product:{active:true}};if(path==='/v1/billing/meters/mtr_test')return {id:'mtr_test',livemode:false,status:'active',event_name:config.eventName,default_aggregation:{formula:'sum'},customer_mapping:{type:'by_id',event_payload_key:'stripe_customer_id'},value_settings:{event_payload_key:'value'},event_time_window:null};if(path==='/v1/customers/cus_test')return {livemode:false,balance:0,currency:'jpy',cash_balance:null};if(path==='/v1/subscriptions'||path==='/v1/invoices')return {data:[],has_more:false};if(path==='/v1/checkout/sessions')return {id:'cs_test',livemode:false,mode:'subscription',customer:'cus_test',url:'https://checkout.stripe.com/c/pay/test'};throw new Error('unexpected endpoint');});
+ const provider=client(async(method,path,p,key)=>{calls.push({method,path,p,key});if(path==='/v1/account')return {id:'acct_test',charges_enabled:true,payouts_enabled:true};if(path==='/v1/prices/price_test')return {...subscription().items.data[0].price,livemode:false,active:true,product:{active:true}};if(path==='/v1/billing/meters/mtr_test')return {id:'mtr_test',livemode:false,status:'active',event_name:config.eventName,default_aggregation:{formula:'sum'},customer_mapping:{type:'by_id',event_payload_key:'stripe_customer_id'},value_settings:{event_payload_key:'value'},event_time_window:null};if(path==='/v1/customers/cus_test')return {id:'cus_test',livemode:false,balance:0,currency:'jpy',cash_balance:null};if(path==='/v1/subscriptions'||path==='/v1/invoices')return {data:[],has_more:false};if(path==='/v1/checkout/sessions')return {id:'cs_test',livemode:false,mode:'subscription',customer:'cus_test',url:'https://checkout.stripe.com/c/pay/test'};throw new Error('unexpected endpoint');});
  const service=new BillingService(s,provider,'cus_test',()=>now);const result=await service.checkout('a'.repeat(64),'same');assert.ok(result.checkoutUrl.startsWith('https://checkout.stripe.com/'));await service.checkout('a'.repeat(64),'same');assert.equal(calls.filter(c=>c.path==='/v1/checkout/sessions').length,1);
  const params=calls.at(-1).p;assert.equal(params['subscription_data[billing_cycle_anchor]'],1793491200);assert.equal(params['line_items[0][price]'],'price_test');assert.equal(params['line_items[0][quantity]'],undefined);assert.equal(params.payment_method_types,undefined);assert.equal(params['consent_collection[terms_of_service]'],'required');assert.equal(params['payment_method_collection'],'always');
  await assert.rejects(()=>service.checkout('a'.repeat(64),'different'),e=>e.status===409);s.db.close();
@@ -67,7 +67,7 @@ test('draft invoice paused; meter summary/quantity mismatch cannot finalize',asy
 });
 test('cancel stops immediately; <50 waiver retries accepted-lost response once, never waives >=50',async()=>{
  const s=storage(),now=ready(s);for(let i=0;i<49;i++)add(s,'c'+i,now+i);s.sql.exec("UPDATE calls SET sendState='sent',invoiceId='in_small'");saveState(s,{...state(s),cancelConfirmed:true});let balance=49,first=true,posts=0;
- const service=new BillingService(s,client(async(method,path,p)=>{if(method==='GET')return {cash_balance:null,currency:'jpy',balance};posts++;balance=0;if(first){first=false;throw new BillingError('stripe_retryable');}return {id:'cbtxn_test',amount:-49,currency:'jpy',ending_balance:0};}),'cus_test',()=>now+100);
+ const service=new BillingService(s,client(async(method,path,p)=>{if(method==='GET')return {id:'cus_test',livemode:false,cash_balance:null,currency:'jpy',balance};posts++;balance=0;if(first){first=false;throw new BillingError('stripe_retryable');}return {id:'cbtxn_test',amount:-49,currency:'jpy',ending_balance:0};}),'cus_test',()=>now+100);
  assert.equal(service.requestCancel().usageStopped,true);assert.equal(state(s).active,false);await assert.rejects(()=>service.cancelAndWaive());await service.cancelAndWaive();await service.cancelAndWaive();assert.equal(posts,2);assert.equal(one(s,'SELECT waived FROM meter').waived,49);assert.equal(one(s,'SELECT outstanding FROM meter').outstanding,0);
  s.sql.exec('UPDATE meter SET outstanding=50');await service.cancelAndWaive();assert.equal(posts,2);s.db.close();
 });
@@ -191,4 +191,83 @@ test('outbox real StripeClient rejection and acknowledgement mismatch still requ
    await service.flush();assert.equal(calls,1);
   }finally{s.db.close();}
  }
+});
+
+const emptyCash=()=>({object:'cash_balance',customer:'cus_test',livemode:false,available:null});
+const cashCases=[
+ [null,true],[emptyCash(),true],
+ [{...emptyCash(),available:{jpy:0}},false],
+ [{...emptyCash(),available:{jpy:0,usd:0}},false],
+ [{...emptyCash(),available:{}},false],
+ [{...emptyCash(),available:{jpy:1}},false],
+ [{...emptyCash(),available:{jpy:-1}},false],
+ [{...emptyCash(),available:{jpy:'0'}},false],
+ [{},false],[[],false],['unexpanded',false],[false,false],
+ [{...emptyCash(),available:undefined},false],
+ [{...emptyCash(),object:'unknown'},false],
+ [{...emptyCash(),customer:'cus_other'},false],
+ [{...emptyCash(),livemode:true},false],
+ [{...emptyCash(),deleted:true},false],
+ [{...emptyCash(),customer_account:'acct_other'},false]
+];
+test('Checkout real StripeClient permits only absent cash or documented available=null and keeps dedicated-customer guards',async()=>{
+ const {stripeMock}=await import('./stripe-mock.js');
+ const customer={id:'cus_test',livemode:false,balance:0,currency:'jpy',cash_balance:null};
+ const cases=[...cashCases.map(([cash,ok])=>[{...customer,cash_balance:cash},ok]),
+  [{...customer,cash_balance:undefined},false],[{...customer,id:'cus_other'},false],
+  [{...customer,livemode:true},false],[{...customer,deleted:true},false],
+  [{...customer,balance:1},false],[{...customer,balance:-1},false],[{...customer,currency:'usd'},false]];
+ for(const [value,ok]of cases){
+  const s=storage(),mock=stripeMock();let posts=0;
+  const api=new StripeClient(env,async(url,options)=>{
+   const path=new URL(url).pathname;
+   if(path==='/v1/customers/cus_test')return Response.json(value);
+   if(options.method==='POST')posts++;
+   return mock.fetch(new Request(url,options));
+  });
+  try{
+   const service=new BillingService(s,api,'cus_test',()=>Date.parse('2026-10-13T12:00:00Z')/1000);
+   if(ok){await service.checkout('synthetic-cash-checkout','digest');assert.equal(posts,1);}
+   else{await assert.rejects(()=>service.checkout('synthetic-cash-checkout','digest'),e=>e.message==='customer_not_dedicated');assert.equal(posts,0);assert.equal(one(s,'SELECT COUNT(*) AS count FROM actions').count,0);}
+  }finally{s.db.close();}
+ }
+ for(const history of [{data:[{id:'existing'}],has_more:false},{data:[],has_more:true},{},{data:'unknown',has_more:false}]){
+  const s=storage(),mock=stripeMock();let posts=0;
+  const api=new StripeClient(env,async(url,options)=>{const path=new URL(url).pathname;if(path==='/v1/subscriptions'||path==='/v1/invoices')return Response.json(history);if(options.method==='POST')posts++;return mock.fetch(new Request(url,options));});
+  try{await assert.rejects(()=>new BillingService(s,api,'cus_test').checkout('synthetic-history','digest'),e=>e.message==='customer_not_dedicated');assert.equal(posts,0);}finally{s.db.close();}
+ }
+});
+function waiverStorage(){const s=storage(),now=ready(s);for(let i=0;i<49;i++)add(s,'cash'+i,now+i);s.sql.exec("UPDATE calls SET sendState='sent',invoiceId='in_small'");saveState(s,{...state(s),cancelRequested:true,cancelConfirmed:true});return {s,now:now+100};}
+test('waiver real StripeClient rejects currency maps, funds, unknown forms and identity/mode/deletion mismatches without adjustment',async()=>{
+ const cases=[...cashCases.map(([cash,ok])=>[{id:'cus_test',livemode:false,currency:'jpy',balance:49,cash_balance:cash},ok]),
+  [{id:'cus_other',livemode:false,currency:'jpy',balance:49,cash_balance:null},false],
+  [{id:'cus_test',livemode:true,currency:'jpy',balance:49,cash_balance:null},false],
+  [{id:'cus_test',deleted:true,livemode:false,currency:'jpy',balance:49,cash_balance:null},false],
+  [{id:'cus_test',livemode:false,currency:'jpy',balance:0,cash_balance:null},false]];
+ for(const [customer,ok]of cases){
+  const {s,now}=waiverStorage();let posts=0;
+  const api=new StripeClient(env,async(url,options)=>{if(options.method==='GET')return Response.json(customer);posts++;return Response.json({id:'cbtxn_test',amount:-49,currency:'jpy',ending_balance:0});});
+  try{
+   const service=new BillingService(s,api,'cus_test',()=>now);
+   if(ok){await service.cancelAndWaive();assert.equal(posts,1);assert.equal(one(s,'SELECT waived FROM meter').waived,49);}
+   else{await assert.rejects(()=>service.cancelAndWaive(),e=>e.message==='waiver_reconciliation_pending');assert.equal(posts,0);assert.equal(one(s,'SELECT outstanding FROM meter').outstanding,49);assert.equal(one(s,'SELECT waived FROM meter').waived,0);}
+  }finally{s.db.close();}
+ }
+});
+test('waiver rechecks cash funds on lost-response retries while preserving original amount and idempotency',async()=>{
+ const {s,now}=waiverStorage();let cash=emptyCash(),balance=49;const posts=[];
+ const api=new StripeClient(env,async(url,options)=>{
+  if(options.method==='GET')return Response.json({id:'cus_test',livemode:false,currency:'jpy',balance,cash_balance:cash});
+  posts.push({body:options.body,key:options.headers['idempotency-key']});balance=0;
+  if(posts.length===1)throw new Error('synthetic-accepted-response-lost');
+  return Response.json({id:'cbtxn_test',amount:-49,currency:'jpy',ending_balance:0});
+ });
+ try{
+  const service=new BillingService(s,api,'cus_test',()=>now);
+  await assert.rejects(()=>service.cancelAndWaive(),e=>e.message==='stripe_transport_error');
+  for(const available of [{jpy:0},{jpy:1}]){cash={...emptyCash(),available};await assert.rejects(()=>service.cancelAndWaive(),e=>e.message==='waiver_reconciliation_pending');assert.equal(posts.length,1);assert.equal(one(s,'SELECT outstanding FROM meter').outstanding,49);}
+  cash=emptyCash();await service.cancelAndWaive();assert.deepEqual(posts[0],posts[1]);
+  assert.equal(one(s,'SELECT waived FROM meter').waived,49);assert.equal(one(s,'SELECT outstanding FROM meter').outstanding,0);
+  await service.cancelAndWaive();assert.equal(posts.length,2);
+ }finally{s.db.close();}
 });
