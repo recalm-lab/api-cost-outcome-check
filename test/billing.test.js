@@ -5,7 +5,7 @@ import {BillingService} from '../src/billing.js';
 import {StripeClient,billingConfig,verifyWebhook,subscriptionState,BillingError} from '../src/stripe.js';
 import {recordSuccess,one,saveState,state} from '../src/meter.js';
 import {storage,ready,eventId,config,subscription,invoice} from './helpers.js';
-const env={BILLING_ENABLED:'true',BILLING_VERIFIED:'true',STRIPE_MODE:'test',STRIPE_RESTRICTED_KEY:'rk_test_synthetic_only_not_a_real_key',STRIPE_WEBHOOK_SECRET:'whsec_synthetic_only_not_a_real_secret',STRIPE_ACCOUNT_ID:'acct_test',STRIPE_PRICE_ID:'price_test',STRIPE_METER_ID:'mtr_test',STRIPE_EVENT_NAME:'recalm_api_cost_check_success_v1',TERMS_VERSION:'2026-10-13',PUBLIC_BASE_URL:'https://example.test',BILLING_ACCOUNTS:JSON.stringify({test:{customerId:'cus_test'}})};
+const env={BILLING_ENABLED:'true',BILLING_VERIFIED:'true',STRIPE_MODE:'test',STRIPE_RESTRICTED_KEY:'rk_test_synthetic_only_not_a_real_key',STRIPE_WEBHOOK_SECRET:'whsec_synthetic_only_not_a_real_secret',STRIPE_METER_WEBHOOK_SECRET:'whsec_synthetic_meter_only_not_a_real_secret',STRIPE_ACCOUNT_ID:'acct_test',STRIPE_PRICE_ID:'price_test',STRIPE_METER_ID:'mtr_test',STRIPE_EVENT_NAME:'recalm_api_cost_check_success_v1',TERMS_VERSION:'2026-10-13',PUBLIC_BASE_URL:'https://example.test',BILLING_ACCOUNTS:JSON.stringify({test:{customerId:'cus_test'}})};
 const add=(s,key,now)=>recordSuccess(s,key,'body',1000,new Date(now*1000).toISOString().slice(0,7),now,eventId(key));
 const client=handler=>({config,request:handler});
 const ack=params=>({identifier:params.identifier,event_name:config.eventName,livemode:false,payload:{stripe_customer_id:'cus_test',value:'1'}});
@@ -98,4 +98,13 @@ test('sandbox can be tested with verified=false; missing flag and unverified liv
  assert.equal(billingConfig({...env,BILLING_VERIFIED:'false'}).mode,'test');
  const live={...env,STRIPE_MODE:'live',STRIPE_RESTRICTED_KEY:'rk_live_synthetic_only_not_a_real_key',BILLING_VERIFIED:'false'};assert.throws(()=>billingConfig(live));
  const missing={...env};delete missing.BILLING_VERIFIED;assert.throws(()=>billingConfig(missing));
+});
+
+test('thin hold persists atomically and prevents outbox/finalize/cancel activity without v2 fetch',async()=>{
+ const s=storage();ready(s);let requests=0;const service=new BillingService(s,client(async()=>{requests++;throw Error('must not fetch');}),'cus_test');
+ await service.webhook({id:'evt_test_thin_01',object:'v2.core.event',type:'v1.billing.meter.error_report_triggered',related_object:{id:config.meterId,type:'billing.meter'}});
+ assert.equal(state(s).requiresManual,true);assert.equal(state(s).active,false);assert.equal(service.needsAlarm(),false);
+ await service.tick();await service.flush();await service.finalizePending();await service.cancelAndWaive();await assert.rejects(()=>service.checkout('new','digest'));assert.equal(requests,0);
+ await service.webhook({id:'evt_test_thin_01',object:'v2.core.event',type:'v1.billing.meter.error_report_triggered',related_object:{id:config.meterId,type:'billing.meter'}});
+ assert.equal(one(s,'SELECT COUNT(*) AS count FROM webhooks').count,1);s.db.close();
 });

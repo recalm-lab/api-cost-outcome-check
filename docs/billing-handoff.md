@@ -58,10 +58,21 @@ PaymentIntents/Charges/Refunds/Products/PricesのWrite、payouts/bank/token/OAut
 
 ## 必須webhookとsandbox残件
 
-宛先 `/v1/stripe/webhook`。署名secretはendpoint専用。少なくともcheckout.session.completed / async_payment_succeeded / async_payment_failed、customer.subscription.created / updated / deleted、invoice.created / updated / finalized / paid / payment_failed / voided / marked_uncollectible、billing.meter.error_report_triggeredを設定する。イベントAPI versionは固定REST versionに揃える。billingが一時停止しても既存精算を完了できるよう、webhookは新規API利用flagから独立させている。
+宛先 `/v1/stripe/webhook`。署名secretはendpoint専用。少なくともcheckout.session.completed / async_payment_succeeded / async_payment_failed、customer.subscription.created / updated / deleted、invoice.created / updated / finalized / paid / payment_failed / voided / marked_uncollectibleを設定する（snapshot 13イベント）。イベントAPI versionは固定REST versionに揃える。billingが一時停止しても既存精算を完了できるよう、webhookは新規API利用flagから独立させている。
 
 実sandboxの初月・更新・UTC境界・meter処理遅延・card登録・49→翌月50・解約49免除/50回収・失敗・署名再送・期限を超えた送信不明・rollback/復旧を通して検証する。invoice.createdのhandlerが成功したときにauto_advance=falseになったことを確認する。他のwebhook receiverによるfinalizationやStripeのinvoice grace設定も確認し、アプリ未検証のinvoiceが先に回収される設定では売らない。既存sandbox customer/署名secret/RAKを安全に入力できる手段がなく、現時点では**real sandbox Checkout/subscription/collectionは未実行**。
 
 [Stripe meter event](https://docs.stripe.com/api/billing/meter-event/create)、[Billing anchor](https://docs.stripe.com/billing/subscriptions/billing-cycle)、[Meter summaryのminute境界](https://docs.stripe.com/api/billing/meter-event-summary/list)、[Customer invoice balance](https://docs.stripe.com/billing/customer/balance)、[InvoicePayment](https://docs.stripe.com/api/invoice-payment/object)、[解約時のinvoice回収停止](https://docs.stripe.com/api/subscriptions/cancel)、[RAK](https://docs.stripe.com/keys)。Stripe CLI 1.53.1のdocs取得はこの環境でForbiddenだったため、公式skillのreferences・接続済みStripe docs tool・公式Web docsで確認した。
 
 限定認証設定が承認された後の正確な入力先と値は[sandbox-activation](sandbox-activation.md)を参照。CF deploy token/クライアントtest keyは実行環境の安全な注入欄、Stripe/署名/HMAC/hash registryはWorker Secret。これらは異なる入力先。
+
+
+### Meter thin通知（snapshotと別の宛先が必須）
+
+公式仕様: [イベント形式](https://docs.stripe.com/events/how-events-work)、[Meter thinイベント導入](https://docs.stripe.com/changelog/acacia/2024-09-30/api-v2-thin-events)。正しい種類は `v1.billing.meter.error_report_triggered` と `v1.billing.meter.no_meter_found`。`billing.meter.error_report_triggered` は使わない。thin通知には `data.object` がなく、snapshot endpointに混ぜられない。
+
+sandboxの専用thin Event destinationを `/v1/stripe/meter-webhook` に追加し、上記2種類を選ぶ。その専用signing secretを本人がWorker Secret `STRIPE_METER_WEBHOOK_SECRET` に直接保存する。snapshot secretを共有しない。thin payloadはunversioned。既存snapshot 13イベントは `/v1/stripe/webhook`、version2026-08-26.dahlia、`STRIPE_WEBHOOK_SECRET` のまま。宛先作成とSecret保存は追加設定で、まだ実施していない。REST用RAKにEvents v2 read権限は追加しない。
+
+署名・mode・event IDを検証し、error_reportのrelated_objectが設定meterであることを確認する。no_meter_foundはmeterを特定できないため全設定アカウントを保守的に停止する。通知URLはfetchしない。詳細原因・該当利用量・返金可否を推測せず、event IDと永続manual holdのみを保存する。全アカウントへの停止保存後に200、途中失敗は503で同じ通知のretryを求める。新規利用・outbox・自動finalize・cancel精算は止まり、既存成功receiptの同一retryは0円。手動解除手順は未実装で、再照合と個別の運用承認が必要。
+
+missing/reused meter secretでは全課金経路をfail closedにする。現在公開済みSHA33c2588にはこの修正が入っていないため、販売停止flagを維持して修正版の承認済みdeploy後に2宛先を登録する。

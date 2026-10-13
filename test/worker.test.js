@@ -88,3 +88,32 @@ test('workerd sandbox E2E starts without claiming billing verified or enabling l
  const mf=runtime(false,{BILLING_VERIFIED:'false'});
  try{const health=await (await mf.dispatchFetch('https://test/health')).json();assert.equal(health.stripeMode,'test');assert.equal(health.billingVerified,false);assert.equal(health.saleActive,false);await activate(mf);const response=await mf.dispatchFetch('https://test/v1/check',req());assert.equal(response.status,200);assert.equal((await response.json()).usage.billableCalls,1);}finally{await mf.dispose();}
 });
+
+test('thin meter error dedicated signature, fanout durable hold, replay and snapshot rejection',async()=>{
+ const mf=runtime(false);try{
+  await activate(mf);await activate(mf,token2);
+  assert.equal((await mf.dispatchFetch('https://test/v1/check',req())).status,200);
+  const event={id:'evt_test_thin_error_01',object:'v2.core.event',type:'v1.billing.meter.error_report_triggered',livemode:false,related_object:{id:'mtr_test',type:'billing.meter',url:'/v1/billing/meters/mtr_test'}};
+  async function send(value=event,secret=billingEnv.STRIPE_METER_WEBHOOK_SECRET,path='/v1/stripe/meter-webhook'){
+   const t=Math.floor(Date.now()/1000),body=JSON.stringify(value),sig=createHmac('sha256',secret).update(t+'.'+body).digest('hex');
+   return mf.dispatchFetch('https://test'+path,{method:'POST',headers:{'stripe-signature':`t=${t},v1=${sig}`},body});
+  }
+  assert.equal((await send(event,webhookSecret)).status,400);
+  assert.equal((await send(event,webhookSecret,'/v1/stripe/webhook')).status,400);
+  for(const bad of [{...event,type:'billing.meter.error_report_triggered'},{...event,livemode:true},{...event,related_object:{id:'mtr_other',type:'billing.meter'}},{...event,context:'acct_other'}])assert.equal((await send(bad)).status,400);
+  assert.equal((await send()).status,200);assert.equal((await send()).status,200);
+  for(const bearer of [token,token2]){
+   const r=await mf.dispatchFetch('https://test/v1/billing',{headers:{authorization:'Bearer '+bearer}});const b=await r.json();assert.equal(b.manualReconciliationRequired,true);assert.equal(b.active,false);
+   assert.equal((await mf.dispatchFetch('https://test/v1/check',req(normal,'synthetic-newcall-002',bearer))).status,503);
+  }
+  const replay=await mf.dispatchFetch('https://test/v1/check',req());assert.equal(replay.status,200);assert.equal((await replay.json()).usage.billableCalls,0);
+ }finally{await mf.dispose();}
+});
+test('thin no_meter_found without related object conservatively holds accounts; missing or reused secret fails closed',async()=>{
+ for(const bindings of [{STRIPE_METER_WEBHOOK_SECRET:''},{STRIPE_METER_WEBHOOK_SECRET:webhookSecret}]){const mf=runtime(false,bindings);try{assert.equal((await mf.dispatchFetch('https://test/v1/checkout',req({termsVersion:'2026-10-13'}))).status,503);}finally{await mf.dispose();}}
+ const mf=runtime(false);try{
+  await activate(mf);const t=Math.floor(Date.now()/1000),body=JSON.stringify({id:'evt_test_no_meter_01',object:'v2.core.event',type:'v1.billing.meter.no_meter_found',livemode:false}),sig=createHmac('sha256',billingEnv.STRIPE_METER_WEBHOOK_SECRET).update(t+'.'+body).digest('hex');
+  assert.equal((await mf.dispatchFetch('https://test/v1/stripe/meter-webhook',{method:'POST',headers:{'stripe-signature':`t=${t},v1=${sig}`},body})).status,200);
+  assert.equal((await mf.dispatchFetch('https://test/v1/check',req())).status,503);
+ }finally{await mf.dispose();}
+});

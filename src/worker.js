@@ -1,7 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { reconcile, LIMITS, InputError } from './reconcile.js';
 import { initMeter, recordSuccess, state, saveState, one } from './meter.js';
-import { StripeClient, billingConfig, verifyWebhook, BillingError, objectId } from './stripe.js';
+import { StripeClient, billingConfig, verifyWebhook, validateMeterEvent, BillingError, objectId } from './stripe.js';
 import { BillingService } from './billing.js';
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' } });
 const encoder = new TextEncoder();
@@ -49,17 +49,19 @@ export default {
       return request.method==='HEAD'?new Response(null,{status:200,headers:{'cache-control':'no-store'}}):json(body);
     }
     if(!path.startsWith('/v1/')){if(['GET','HEAD'].includes(request.method)&&env.ASSETS)return env.ASSETS.fetch(request);return json({error:'not_found'},404);}
-    const allowed=['/v1/check','/v1/checkout','/v1/cancel','/v1/billing','/v1/stripe/webhook'];if(!allowed.includes(path))return json({error:'not_found'},404);
+    const allowed=['/v1/check','/v1/checkout','/v1/cancel','/v1/billing','/v1/stripe/webhook','/v1/stripe/meter-webhook'];if(!allowed.includes(path))return json({error:'not_found'},404);
     if(request.method!==(path==='/v1/billing'?'GET':'POST'))return json({error:'method_not_allowed'},405);
     let dispatched=false;
     try{
       const config=billingConfig(env);
-      if(path==='/v1/stripe/webhook'){
+      if(['/v1/stripe/webhook','/v1/stripe/meter-webhook'].includes(path)){
         if(!env.ACCOUNTS)throw new BillingError();
-        const text=await boundedBody(request,65536),event=await verifyWebhook(text,request.headers.get('stripe-signature'),env.STRIPE_WEBHOOK_SECRET);
+        const thin=path==='/v1/stripe/meter-webhook';
+        const text=await boundedBody(request,65536),event=await verifyWebhook(text,request.headers.get('stripe-signature'),thin?env.STRIPE_METER_WEBHOOK_SECRET:env.STRIPE_WEBHOOK_SECRET,undefined,thin?'thin':'snapshot');
+        if(thin)validateMeterEvent(event,config.meterId);
         if(event.livemode!==config.livemode)throw new BillingError('mode_mismatch',400);
-        const customer=objectId(event.data.object.customer);
-        const matched=event.type==='billing.meter.error_report_triggered'?Object.keys(config.accounts):Object.keys(config.accounts).filter(a=>config.accounts[a].customerId===customer);
+        const customer=thin?null:objectId(event.data.object.customer);
+        const matched=thin?Object.keys(config.accounts):Object.keys(config.accounts).filter(a=>config.accounts[a].customerId===customer);
         for(const account of matched){const stub=env.ACCOUNTS.get(env.ACCOUNTS.idFromName(account));const response=await stub.fetch('https://internal/webhook',{method:'POST',body:JSON.stringify(event),headers:{'x-account':account}});if(!response.ok)return json({error:'billing_sync_pending'},503);}
         return json({received:true});
       }

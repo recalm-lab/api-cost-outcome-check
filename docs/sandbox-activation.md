@@ -91,3 +91,6 @@ PC shell不要のstatic公開は従来の単一bundleを使える。本体のSQL
 契約成立後のsmokeも同じrepoのencrypted secretで環境間依存をなくす。ユーザーは `RECALM_TEST_API_KEY` を同じGitHub Actions Secret画面へ直接保存し、原本のSHA256 registryをWorker CREDENTIALSへ入力する。担当者が `recalm-sandbox-smoke-<一意の識別子>` tagをレビューSHAへ通常pushすると、別workflowがtest-only remote healthを確認し、固定の論理試験キーで1回/retry/conflictを検証する。未契約や失効ではfailし、Checkout/契約作成やcard登録を自動で行わない。CF deploy tokenをsmoke jobへ渡さない。全タグでのscript nonce `sandbox-smoke-v1-20261013` を維持し、再実行でも同じ1論理callを使う。API key原本やURL capabilityをログしない。
 
 Customer/Invoice groupsにAccount Read、Invoice Payments Read、cash balance Readが包含されるかは、sandboxの403とStripe Workbenchの**endpoint/statusだけ**で確認する。追加権限を自動選択しない。不足が判明したoperationを報告し、その最小groupだけを別確認する。API key/Authorization/カード値やWorkbench本文をチャットへ転載しない。
+
+
+**thin追加設定が必須:** snapshot 13イベントと別に `/v1/stripe/meter-webhook` のthin destinationを作成し、`v1.billing.meter.error_report_triggered` / `v1.billing.meter.no_meter_found` を選ぶ。専用Secret `STRIPE_METER_WEBHOOK_SECRET` は本人が同Workerへ直接入力し、snapshot Secretと共有しない。追加のEvents v2 read権限は不要。未作成・未設定の間は利用開始不可。詳しくはbilling-handoff.md。

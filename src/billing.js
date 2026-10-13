@@ -1,4 +1,4 @@
-import {BillingError,objectId,subscriptionState,nextMonth} from './stripe.js';
+import {BillingError,objectId, validateMeterEvent, METER_EVENTS,subscriptionState,nextMonth} from './stripe.js';
 import {one,state,saveState} from './meter.js';
 const rows=(s,sql,...args)=>[...s.sql.exec(sql,...args)];
 const retryWindow=23*3600;
@@ -12,6 +12,7 @@ export class BillingService {
     if(price.id!==this.c.priceId||meter.id!==this.c.meterId||meter.livemode!==this.c.livemode||price.livemode!==this.c.livemode||!price.active||!price.product?.active||price.currency!=='jpy'||price.unit_amount!==1||price.tax_behavior!=='inclusive'||price.recurring?.interval!=='month'||price.recurring.interval_count!==1||price.recurring.usage_type!=='metered'||price.recurring.meter!==this.c.meterId||meter.status!=='active'||meter.event_name!==this.c.eventName||meter.default_aggregation?.formula!=='sum'||meter.customer_mapping?.event_payload_key!=='stripe_customer_id'||meter.customer_mapping?.type!=='by_id'||meter.value_settings?.event_payload_key!=='value'||meter.event_time_window)throw new BillingError('catalog_mismatch');
   }
   async checkout(key,digest){
+    if(state(this.s).requiresManual)throw new BillingError('manual_reconciliation_required');
     const id='checkout:'+key,old=one(this.s,'SELECT * FROM actions WHERE id=?',id);
     let action=old?JSON.parse(old.data):null;
     if(old&&old.digest!==digest)throw new BillingError('idempotency_conflict',409);
@@ -58,7 +59,13 @@ export class BillingService {
   async webhook(event){
     if(one(this.s,'SELECT id FROM webhooks WHERE id=?',event.id))return;
     if(one(this.s,'SELECT COUNT(*) AS count FROM webhooks').count>=100000){this.hold('webhook_capacity');throw new BillingError();}
-    const object=event.data.object;
+    if(METER_EVENTS.includes(event.type)){
+      validateMeterEvent(event,this.c.meterId);
+      this.s.transactionSync(()=>{this.hold('meter_error');this.s.sql.exec('INSERT INTO webhooks VALUES (?,?)',event.id,this.now());});
+      return;
+    }
+    const object=event.data?.object;
+    if(!object||event.type.startsWith('billing.meter.'))throw new BillingError('invalid_event',400);
     try{
       const prefix=event.type.startsWith('checkout.session.')?'cs':event.type.startsWith('customer.subscription.')?'sub':event.type.startsWith('invoice.')?'in':null;
       if(prefix&&!new RegExp('^'+prefix+'_[A-Za-z0-9_]{1,100}$').test(object.id||''))throw new BillingError('invalid_event',400);
@@ -74,7 +81,7 @@ export class BillingService {
       }else if(event.type.startsWith('invoice.')){
         const invoice=await this.client.request('GET','/v1/invoices/'+object.id);
         await this.observeInvoice(invoice,true);
-      }else if(event.type.startsWith('billing.meter.')){this.hold('meter_error');}
+      }
       this.s.sql.exec('INSERT INTO webhooks VALUES (?,?)',event.id,this.now());
     }catch(error){this.hold(error instanceof BillingError?error.message:'billing_hold');throw error;}
   }
@@ -127,6 +134,7 @@ export class BillingService {
     if(b.subscriptionId)await this.refreshSubscription(b.subscriptionId);
   }
   async flush(){
+    if(state(this.s).requiresManual)return;
     const pending=rows(this.s,"SELECT * FROM calls WHERE sendState IN ('queued','sending') AND nextAttempt<=? ORDER BY createdAt LIMIT 10",this.now());
     for(const row of pending){
       if(row.firstAttempt!==null&&this.now()-row.firstAttempt>=retryWindow){this.s.sql.exec("UPDATE calls SET sendState='hold' WHERE id=?",row.id);this.hold('meter_delivery_unknown');continue;}
@@ -150,6 +158,7 @@ export class BillingService {
     return value===expected;
   }
   async finalizePending(){
+    if(state(this.s).requiresManual)return;
     const b=state(this.s);if(!b.pendingInvoice)return;
     if(this.now()-(b.pendingSince||0)>=retryWindow){this.hold('invoice_reconciliation_unknown');saveState(this.s,{...state(this.s),pendingInvoice:null});return;}
     const invoice=await this.client.request('GET','/v1/invoices/'+b.pendingInvoice);
@@ -162,6 +171,7 @@ export class BillingService {
   }
   requestCancel(){this.s.transactionSync(()=>{const b=state(this.s);if(!b.subscriptionId)throw new BillingError('no_contract',409);saveState(this.s,{...b,cancelRequested:true,active:false,collectionHold:true});});return {cancelRequested:true,usageStopped:true,settlementPending:true};}
   async cancelAndWaive(){
+    if(state(this.s).requiresManual)return;
     let b=state(this.s);if(!b.cancelRequested)return;
     if(one(this.s,"SELECT id FROM calls WHERE sendState!='sent' LIMIT 1"))return;
     if(one(this.s,'SELECT id FROM calls WHERE createdAt>=? LIMIT 1',this.now()-1))return;

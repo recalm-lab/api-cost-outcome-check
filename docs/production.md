@@ -13,7 +13,7 @@
 
 [Billing handoff](billing-handoff.md)に操作allowlist、sandbox識別子、必要scope、webhook種類を記載。これ以外のprice/payment-link/plan/metronome/PayIntent統合を増やさない。
 
-- Secret: STRIPE_RESTRICTED_KEY (`rk_test_` / `rk_live_`, mode一致)、STRIPE_WEBHOOK_SECRET、FINGERPRINT_SECRET（256-bit以上ランダム、base64url43..128文字）、CREDENTIALS（SHA-256 hex → account/enabled/expiresAt/maxMonthlySuccessfulCalls）。顧客keyは256-bit以上のbase64url、平文をregistryに保存しない。キー生成・発行は別承認。
+- Secret: STRIPE_RESTRICTED_KEY (`rk_test_` / `rk_live_`, mode一致)、STRIPE_WEBHOOK_SECRET、STRIPE_METER_WEBHOOK_SECRET（snapshotとは別）、FINGERPRINT_SECRET（256-bit以上ランダム、base64url43..128文字）、CREDENTIALS（SHA-256 hex → account/enabled/expiresAt/maxMonthlySuccessfulCalls）。顧客keyは256-bit以上のbase64url、平文をregistryに保存しない。キー生成・発行は別承認。
 - 通常vars: STRIPE_MODE、STRIPE_ACCOUNT_ID、STRIPE_PRICE_ID、STRIPE_METER_ID、STRIPE_EVENT_NAME、TERMS_VERSION=2026-10-13、PUBLIC_BASE_URL（HTTPS originのみ）、BILLING_ACCOUNTS（account→専用customer、重複なし、最大32件）。Workersの1変数5KiB上限に収まる少人数で始める。
 - 同じaccountの全顧客keyに同じ契約cap（最大1000）・停止条件を適用。解約はDOのaccountを止め、既存keyの結果再取得/billing確認は期限内で可能。完全失効は全registry keyをdisabledにする。
 - API_ENABLED=falseのまま初回SQLiteとschema、secret/mode/object一致を確認。設定欠落はCheckout/利用/webhook/精算すべてfail closed。test modeはVERIFIED=falseのまま承認済みsandbox試験を開始でき、live modeではVERIFIED=trueが必要。

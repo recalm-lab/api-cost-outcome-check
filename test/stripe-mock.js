@@ -1,6 +1,6 @@
 import {subscription} from './helpers.js';
 export const webhookSecret='whsec_synthetic_only_not_a_real_secret';
-export const billingEnv={BILLING_ENABLED:'true',BILLING_VERIFIED:'true',STRIPE_MODE:'test',STRIPE_RESTRICTED_KEY:'rk_test_synthetic_only_not_a_real_key',STRIPE_WEBHOOK_SECRET:webhookSecret,STRIPE_ACCOUNT_ID:'acct_test',STRIPE_PRICE_ID:'price_test',STRIPE_METER_ID:'mtr_test',STRIPE_EVENT_NAME:'recalm_api_cost_check_success_v1',TERMS_VERSION:'2026-10-13',PUBLIC_BASE_URL:'https://example.test',BILLING_ACCOUNTS:JSON.stringify({'test-account':{customerId:'cus_test'},'other-account':{customerId:'cus_other'}})};
+export const billingEnv={BILLING_ENABLED:'true',BILLING_VERIFIED:'true',STRIPE_MODE:'test',STRIPE_RESTRICTED_KEY:'rk_test_synthetic_only_not_a_real_key',STRIPE_WEBHOOK_SECRET:webhookSecret,STRIPE_METER_WEBHOOK_SECRET:'whsec_synthetic_meter_only_not_a_real_secret',STRIPE_ACCOUNT_ID:'acct_test',STRIPE_PRICE_ID:'price_test',STRIPE_METER_ID:'mtr_test',STRIPE_EVENT_NAME:'recalm_api_cost_check_success_v1',TERMS_VERSION:'2026-10-13',PUBLIC_BASE_URL:'https://example.test',BILLING_ACCOUNTS:JSON.stringify({'test-account':{customerId:'cus_test'},'other-account':{customerId:'cus_other'}})};
 export function stripeMock(){const calls=[],accepted=new Set();return {calls,accepted,fetch:async request=>{
  const url=new URL(request.url),path=url.pathname,params=new URLSearchParams(await request.text());calls.push({method:request.method,path,params:Object.fromEntries(params)});
  const now=new Date(),period=now.toISOString().slice(0,7);

@@ -1403,7 +1403,7 @@
             "stripeSignature": []
           }
         ],
-        "description": "Maximum raw body 64KiB, 2 second body deadline. Requires configured mode and trusted signature. Customer IDs map to operator-configured accounts; object graph is retrieved from Stripe, no metadata-based grants. Stores event ID/time only. Required for lifecycle/collections.",
+        "description": "Maximum raw body 64KiB, 2 second body deadline. Requires configured mode and trusted signature. Customer IDs map to operator-configured accounts; object graph is retrieved from Stripe, no metadata-based grants. Stores event ID/time only. Required for lifecycle/collections. Snapshot destination only; thin and obsolete billing.meter.* types are rejected. Requires separate configured meter signing secret before activation.",
         "requestBody": {
           "required": true,
           "content": {
@@ -1546,6 +1546,117 @@
                     "billingEnabled",
                     "billingVerified",
                     "saleActive"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/stripe/meter-webhook": {
+      "post": {
+        "operationId": "receiveStripeMeterThinWebhook",
+        "security": [
+          {
+            "stripeSignature": []
+          }
+        ],
+        "description": "Dedicated thin destination and STRIPE_METER_WEBHOOK_SECRET, distinct from snapshot. Exact v1.billing.meter.error_report_triggered (matching related meter) and v1.billing.meter.no_meter_found (cannot attribute, hold all configured accounts). Valid signed notifications atomically persist event ID and manual hold; no v2 Event retrieval, no detailed error claim. Wrong destination, mode, meter or signature rejected. 200 only after every account persists hold; 503 requests retry.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "received": {
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "received"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON, schema or idempotency key; not metered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "Body read deadline of 2 seconds exceeded; not metered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "const": "timeout"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Webhook body exceeds 65536 bytes"
+          },
+          "503": {
+            "description": "Unavailable or billing hold. A DO commit followed by RPC/connection failure may leave usage status unknown. Do not assume free; retry the same key and identical body. Definitively rejected inputs are not recorded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "usageStatus": {
+                      "type": "string",
+                      "enum": [
+                        "unknown"
+                      ]
+                    },
+                    "retry": {
+                      "const": "same_idempotency_key_and_identical_body"
+                    }
+                  },
+                  "required": [
+                    "error"
                   ]
                 }
               }
