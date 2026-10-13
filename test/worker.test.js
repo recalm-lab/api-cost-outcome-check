@@ -138,3 +138,29 @@ test('workerd renewed synthetic credential shares account receipts and cap and c
   assert.equal((await mf.dispatchFetch('https://test/v1/check',req(normal,'renewal-after-cancel',renewed))).status,503);
  }finally{await mf.dispose();await rm(persist,{recursive:true,force:true});}
 });
+
+test('health saleActive requires live, three flags and local settings without Stripe calls or secret disclosure',async()=>{
+ const live={...billingEnv,STRIPE_MODE:'live',STRIPE_RESTRICTED_KEY:'rk_live_synthetic_only_not_a_real_key',API_ENABLED:'true',BILLING_ENABLED:'true',BILLING_VERIFIED:'true'};
+ const cases=[
+  [live,true],
+  ...['API_ENABLED','BILLING_ENABLED','BILLING_VERIFIED'].flatMap(key=>[[{...live,[key]:'false'},false],[{...live,[key]:undefined},false]]),
+  [{...live,STRIPE_MODE:'test',STRIPE_RESTRICTED_KEY:billingEnv.STRIPE_RESTRICTED_KEY},false],
+  ...['STRIPE_RESTRICTED_KEY','STRIPE_WEBHOOK_SECRET','STRIPE_METER_WEBHOOK_SECRET','STRIPE_ACCOUNT_ID','STRIPE_PRICE_ID','STRIPE_METER_ID','STRIPE_EVENT_NAME','TERMS_VERSION','PUBLIC_BASE_URL','BILLING_ACCOUNTS'].map(key=>[{...live,[key]:''},false]),
+  [{...live,STRIPE_RESTRICTED_KEY:billingEnv.STRIPE_RESTRICTED_KEY},false],
+  [{...live,STRIPE_METER_WEBHOOK_SECRET:webhookSecret},false],
+  [{...live,FINGERPRINT_SECRET:''},false],
+  [{...live,CREDENTIALS:'broken'},false],
+  [{...live,CREDENTIALS:'{}'},false],
+  [{...live,CREDENTIALS:JSON.stringify({bad:credentials[Object.keys(credentials)[0]]})},false]
+ ];
+ for(const [bindings,expected]of cases){
+  const provider=stripeMock(),mf=runtime(false,bindings,provider);
+  try{
+   const response=await mf.dispatchFetch('https://test/health');assert.equal(response.status,200);
+   const text=await response.text(),health=JSON.parse(text);assert.equal(health.saleActive,expected);
+   if(expected)assert.equal(health.status,'live_enabled');
+   assert.deepEqual(provider.calls,[]);
+   for(const secret of [bindings.STRIPE_RESTRICTED_KEY,bindings.STRIPE_WEBHOOK_SECRET,bindings.STRIPE_METER_WEBHOOK_SECRET,token])if(secret)assert.ok(!text.includes(secret));
+  }finally{await mf.dispose();}
+ }
+});
