@@ -17,7 +17,7 @@ test('billing config every missing field fails closed; mode, price and signing s
 test('REST pins official host/version, instance key, form params and stable idempotency; sanitizes errors',async()=>{
  const calls=[];const api=new StripeClient(env,async(url,options)=>{calls.push({url,options});return Response.json({id:'ok'});});
  await api.request('POST','/v1/billing/meter_events',{identifier:'stable','payload[value]':1},'same-key');assert.equal(calls[0].url,'https://api.stripe.com/v1/billing/meter_events');assert.equal(calls[0].options.headers['stripe-version'],'2026-08-26.dahlia');assert.equal(calls[0].options.headers['idempotency-key'],'same-key');assert.equal(new URLSearchParams(calls[0].options.body).get('payload[value]'),'1');
- const bad=new StripeClient(env,async()=>new Response('never-reflect-secret-body',{status:500}));await assert.rejects(()=>bad.request('GET','/v1/account'),e=>e.message==='stripe_retryable');
+ const bad=new StripeClient(env,async()=>new Response('never-reflect-secret-body',{status:500}));await assert.rejects(()=>bad.request('GET','/v1/account'),e=>e.message==='stripe_upstream_unavailable');
 });
 test('webhook validates raw body signature, multiple v1 signatures and strict 5 minute replay tolerance',async()=>{
  const now=1790812900,body=JSON.stringify({id:'evt_test',type:'invoice.paid',livemode:false,data:{object:{id:'in_test'}}}),sig=createHmac('sha256',env.STRIPE_WEBHOOK_SECRET).update(now+'.'+body).digest('hex');
