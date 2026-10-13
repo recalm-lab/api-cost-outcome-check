@@ -145,7 +145,7 @@ export class BillingService {
         if(event.identifier!==row.eventId||event.event_name!==this.c.eventName||event.livemode!==this.c.livemode||event.payload?.stripe_customer_id!==this.customerId||String(event.payload?.value)!=='1')throw new BillingError('meter_ack_mismatch');
         this.s.sql.exec("UPDATE calls SET sendState='sent' WHERE id=?",row.id);
       }catch(error){
-        if(error instanceof BillingError&&error.message==='stripe_retryable')this.s.sql.exec('UPDATE calls SET nextAttempt=? WHERE id=?',this.now()+Math.min(3600,15*2**Math.min(row.attempts,8)),row.id);
+        if(error instanceof BillingError&&['stripe_retryable','stripe_rate_limited','stripe_upstream_unavailable','stripe_transport_error','stripe_invalid_json'].includes(error.message))this.s.sql.exec('UPDATE calls SET nextAttempt=? WHERE id=?',this.now()+Math.min(3600,15*2**Math.min(row.attempts,8)),row.id);
         else{this.s.sql.exec("UPDATE calls SET sendState='hold' WHERE id=?",row.id);this.hold('meter_delivery_unknown');}
       }
     }
