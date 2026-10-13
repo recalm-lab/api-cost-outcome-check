@@ -36,3 +36,27 @@ test('workerd native fetch rejects an unrelated receiver; StripeClient default a
   assert.equal(result.serviceOk,true);
  }finally{await mf.dispose();}
 });
+
+test('Stripe failures distinguish fixed classes without reflecting response bodies or exception strings',async()=>{
+ const {StripeClient,BillingError}=await import('../src/stripe.js');
+ const {safeFailure}=await import('../scripts/sandbox-lifecycle.mjs');
+ const marker='synthetic-private-marker-never-reflect';
+ const cases=[
+  [async()=>new Response(marker,{status:429}),'stripe_rate_limited',503],
+  [async()=>new Response(marker,{status:500}),'stripe_upstream_unavailable',503],
+  [async()=>new Response(marker,{status:503}),'stripe_upstream_unavailable',503],
+  [async()=>new Response(marker,{status:403}),'stripe_rejected',502],
+  [async()=>{throw new Error(marker);},'stripe_transport_error',503],
+  [async()=>new Response(marker,{status:200}),'stripe_invalid_json',502]
+ ];
+ for(const [fetcher,code,status]of cases){
+  let calls=0;const client=new StripeClient(billingEnv,(...args)=>{calls++;return fetcher(...args);});
+  await assert.rejects(()=>client.request('POST','/v1/checkout/sessions',{},'synthetic-idempotency'),error=>{
+   assert.ok(error instanceof BillingError);assert.equal(error.message,code);assert.equal(error.status,status);
+   assert.equal(safeFailure({error:error.message,detail:marker}),code);
+   assert.ok(!JSON.stringify(error).includes(marker));return true;
+  });
+  assert.equal(calls,1,'classification must not retry an ambiguous POST');
+ }
+ assert.equal(safeFailure({error:marker}),'unclassified');
+});
