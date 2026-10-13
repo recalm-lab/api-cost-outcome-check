@@ -1,4 +1,4 @@
-import {readFileSync, mkdirSync, writeFileSync} from 'node:fs';
+import {readFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
 
 export const TARGET = Object.freeze({
@@ -49,7 +49,9 @@ export async function execute(action, {key, account=TARGET.account, vars, fetchI
   const before=safeStatus(await request('/v1/billing'));
   if(action==='status')return {status:before};
   if(action==='checkout'){
-    if(before.active||before.cancelRequested||before.hold||before.manualReconciliationRequired||before.outstandingJpy!==0)fail();
+    // Initial collectionHold=true is normal before Checkout. Manual hold still stops.
+    // Server checkout remains authoritative for existing subscriptions and dedicated customer.
+    if(before.active||before.cancelRequested||before.manualReconciliationRequired||before.outstandingJpy!==0)fail();
     const checkout=validateCheckout(await request('/v1/checkout','POST',{termsVersion:TARGET.terms},true,true),now);
     return {status:before,checkout};
   }
@@ -64,9 +66,8 @@ async function main(){
     const vars=JSON.parse(readFileSync(new URL('../deploy/sandbox-vars.json',import.meta.url),'utf8'));
     const result=await execute(process.argv[2],{key:process.env.RECALM_TEST_API_KEY,account:process.env.RECALM_SANDBOX_ACCOUNT,vars});
     if(result.checkout){
-      // Capability URL is never emitted to logs/summary; restricted repo artifact, one day.
-      mkdirSync('sandbox-checkout-artifact',{recursive:true,mode:0o700});
-      writeFileSync('sandbox-checkout-artifact/checkout-link.txt',result.checkout.checkoutUrl+'\n',{mode:0o600});
+      // Public repository: never write the capability URL to logs, summary or artifact.
+      // The authorized operator retrieves the session link directly in Stripe Dashboard.
       console.log(JSON.stringify({action:'checkout',checkoutReady:true,expiresAt:result.checkout.expiresAt}));
     }else console.log(JSON.stringify(result));
   }catch{console.error('Sandbox lifecycle failed; state preserved. Inspect HTTP status; do not change the checkout nonce or key scopes.');process.exitCode=1;}
