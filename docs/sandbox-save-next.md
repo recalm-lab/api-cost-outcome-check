@@ -1,20 +1,13 @@
-# 残る本人操作（sandbox、販売停止維持）
+# 過去資料: sandbox初回保存の引継ぎ（現在の再生成・上書きは不要）
 
-**2026-10-13 20:42 UTCの診断では初回手順を止める:** FINGERPRINT_SECRET/CREDENTIALSは既にSecret名として存在する。API_ENABLED=true、BILLING_ENABLED=true、BILLING_VERIFIED=false、STRIPE_MODE=test、saleActive=false。依頼時点の未保存/全flagsfalseと差分があるため、以下の初回生成・上書きを実行せず、保存済み設定/実行状況を親担当へ引き継ぐ。RECALM_TEST_API_KEY名の存在はGitHub readで確認できていない。値の照会はしない。
+この文書は初回未設定時のhelper案内を振り返る過去資料です。現在の本人操作一覧として使用しません。**helperを再生成せず、FINGERPRINT_SECRET/CREDENTIALS/BILLING_ACCOUNTS/保存済みtest keyをこの案内で上書きしないでください。**
 
-以下は未保存が別途確認された初回設定用の準備手順。署名Secret2つは本人の保存完了報告を受領。値の取得・表示・比較は行わない。接続の最終確認はsigned webhookとsandbox E2Eで行う。存在だけで署名が正しいとは判定しない。
+2026-10-13 20:42 UTCのmetadata診断ではFINGERPRINT_SECRET/CREDENTIALS等のSecret名/型が存在し、API_ENABLED=true、BILLING_ENABLED=true、BILLING_VERIFIED=false、STRIPE_MODE=test、saleActive=falseでした。初回の未保存/全flagsfalseという前提は現在の状態ではありません。diagnosticは値の一致や署名を検証するものではなく、[既存E2E証跡](sandbox-connection-evidence.md#既存sandbox実証診断とは別の証拠)と区別します。
 
-準備済み [単一ローカルHTML](https://github.com/recalm-lab/api-cost-outcome-check/blob/5c72dea4babaa2821f06b8e4da4b5a7d22bbb5f1/tools/offline-sandbox-setup.html) を **Download raw file** で保存し、本人PCでfile:として開く。zip/PC shell/npm不要。公式保存画面を準備してから「専用テスト値をPC内で生成」を1回だけ押す。モデル/操作担当へ値を渡さず、本人がcopyして直接保存する。
+初回helperは専用のtest原本、fingerprint、SHA256 registry、customer対応JSONを生成して保存するためのものでした。保存先と生成時24時間expiryは過去の初回設定仕様であり、期限更新・再発行・HMAC変更の指示ではありません。[当時の案内](https://github.com/recalm-lab/api-cost-outcome-check/blob/3cf745f71416d0c64598091b0fabb4880324dee6/docs/sandbox-save-next.md)と[helper](https://github.com/recalm-lab/api-cost-outcome-check/blob/5c72dea4babaa2821f06b8e4da4b5a7d22bbb5f1/tools/offline-sandbox-setup.html)は履歴として参照できます。
 
-|HTMLのcopy欄|保存先|
-|---|---|
-|テストAPIキー原本|api-cost-outcome-check repo Settings → Secrets and variables → Actions → repository Secret `RECALM_TEST_API_KEY`|
-|fingerprint|既存recalm-api-cost-check Worker Settings → Variables and Secrets → Secret `FINGERPRINT_SECRET`|
-|registry JSON（原本ではなくSHA256）|同Worker Secret `CREDENTIALS`|
-|customer対応JSON|同Worker通常Variable `BILLING_ACCOUNTS`|
+専用account `sandbox-e2e-20261013` / customer `cus_VQrJWHFdsVqzJG` では、既にCheckout・署名Webhook・1call・retry増分0・解約1円免除まで実証済みです。解約済み台帳を初回helperで初期化し直しません。別のStripe clock合成customerでは49円繰越＋翌月1円＝50円回収と1000円回収も確認しました。
 
-非秘密対応は `sandbox-e2e-20261013` → `cus_VQrJWHFdsVqzJG`。HTMLに入力済みで4つ目のJSONをそのままcopyできる。registryのexpiryは本人が押した時刻+24時間、数値UTC epoch millisecondsで自動作成。maxMonthlySuccessfulCalls1000。HTMLのenabled:trueはcredential registry内の状態で、停止flagを解除しない。
+RECALM_TEST_API_KEY名の直接readはmetadata診断では確認できていませんが、それをキー未保存・E2E未実行とは解釈しません。値を照会せず、必要なら既存の期限内認証結果で状態を確認します。期限切れ未確認のまま再生成を依頼しません。
 
-全保存後はページ内の値を消去して閉じ、保存完了だけを伝える。署名Secretやキーを再投稿しない。初回設定では3flagsをすべてfalse、STRIPE_MODE=testとするが、現在の稼働設定はこの案内で変更しない。値の再生成や既存fingerprintの上書きはしない。
-
-この案内自体は生成・保存・契約・有効化を実行しない。既存fingerprint/registryが見つかった場合は初回用HTMLで上書きせず止める。本人保存後にSecret名のみ確認し、sandbox接続確認を行う。新しいStripe key・CF token・本番権限は不要。
+現在のlive準備は[resumption-status](resumption-status.md)と[production](production.md)を参照してください。live meterは本人作成報告済み・正確ID確認待ちで、重複作成不要です。live Product/Price/Webhook、未発効規約、live秘密値3つは未完です。本記録の更新で保存・生成・契約・有効化・再配置は実行していません。
