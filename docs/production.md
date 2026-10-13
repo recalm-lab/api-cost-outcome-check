@@ -17,7 +17,7 @@
 - 通常vars: STRIPE_MODE、STRIPE_ACCOUNT_ID、STRIPE_PRICE_ID、STRIPE_METER_ID、STRIPE_EVENT_NAME、TERMS_VERSION=2026-10-13、PUBLIC_BASE_URL（HTTPS originのみ）、BILLING_ACCOUNTS（account→専用customer、重複なし、最大32件）。Workersの1変数5KiB上限に収まる少人数で始める。
 - 同じaccountの全顧客keyに同じ契約cap（最大1000）・停止条件を適用。解約はDOのaccountを止め、既存keyの結果再取得/billing確認は期限内で可能。完全失効は全registry keyをdisabledにする。
 - API_ENABLED=falseのまま初回SQLiteとschema、secret/mode/object一致を確認。設定欠落はCheckout/利用/webhook/精算すべてfail closed。
-- 最小tenantモデル: API専用Stripe customer、cash balanceなし、初期invoice balanceゼロ、既存subscriptionなし。1 account/1 contractだけ。自動キー発行、一般の複数商品customer共有、再加入の自動移行は初版対象外で手動確認する。
+- 最小tenantモデル: API専用Stripe customer、cash balanceなし、初期invoice balanceゼロ、既存subscription/invoiceなし。1 account/1 contractだけ。自動キー発行、一般の複数商品customer共有、再加入の自動移行は初版対象外で手動確認する。
 - Stripe Dashboardのterms URL/連絡先/販売者表示/税込価格と、公開したtermsページを一致させる。Hosted Checkoutは利用条件同意を必須とするが、このrepoの条件は未発効の下書き。残る保持・返金・責任等の条件を確定してからBILLING_VERIFIEDを立てる。
 
 ## 必須の実接続検証

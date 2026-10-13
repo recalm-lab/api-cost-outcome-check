@@ -1,45 +1,36 @@
-# Verification — 2026-10-13
+# Verification — 0.3.0 / 2026-10-13
 
-Local independent checkout: `/workspace/api-cost-outcome-check`. Base main: `99a50312d9fb7e9e1e6439a46d2c6a3a00b8a830`. No edits to `/workspace/recalm-ops`; its status remained clean before/after. No production/customer keys created. No Stripe writes or purchases. No input body/results logged or persisted by application code.
+Independent checkout: `/workspace/api-cost-outcome-check`. Base main: `99a50312d9fb7e9e1e6439a46d2c6a3a00b8a830`. Branch `feat/deterministic-cost-check`, draft PR #1. `/workspace/recalm-ops` remained clean. No production/customer keys, Stripe writes, OAuth changes, or purchases performed.
 
-## Checks
+## Test and build evidence
 
-- Node v24.19.0; fixed Miniflare 4.20260730.0 using actual workerd and SQLite Durable Objects.
-- `npm test`: 10/10 tests passed (19.56s). Skill's normal/retry/missing-join synthetic examples; amounts/units/estimate separation; no invented joins; deposits/balances excluded; duplicate suspicion; unknown/zero-success ratios; invalid schemas/UTF-8; concurrency; month boundary; transaction rollback; authentication/expiry/stop; persistence; exact maximum input; static assets and OpenAPI.
-- 20 concurrent identical account/key/body requests: 20 HTTP 200, total new successful calls = 1.
-- 12 concurrent distinct keys after one success, monthly test cap = 5: 4 HTTP 200, 8 HTTP 429. Count remains 5 after restart; original key replay increments 0.
-- Same key/different valid body: HTTP 409, no increment. Invalid JSON/schema/UTF-8 and oversized bodies do not increment. Another account using the same key has a separate count.
-- Direct SQLite tests verify UTC monthly reset, replay across months without increment, receipt's metadata-only schema, transaction rollback with no orphan receipt or count, and lifetime receipt safety ceiling.
-- Static asset requests return the demo and OpenAPI with security headers. Demo has only three synthetic examples. POST to the static demo cannot run the operational API.
-- `npm run build:demo` is reproducible: copies the same reconciliation module and OpenAPI to static assets.
-- `npm audit --omit=dev`: 0 vulnerabilities; runtime dependency tree is empty. This does not certify dev dependencies or overall security.
-- Wrangler 4.149.0 `deploy --dry-run --config wrangler.jsonc`: success; total bundle 12.50 KiB / gzip 4.24 KiB. API_ENABLED remains false. Static-only demo config also passed dry-run. No deployment performed.
-- `git diff --check`: passed.
+- **30/30 tests pass** on Node v24.19.0 with fixed Miniflare4.20260730.0, actual workerd and SQLite. Stripe responses/credentials used by tests are synthetic, not real keys.
+- Reconciliation: original skill's three synthetic examples, currency/credits/evidence separation, failed retries, unknown joins, duplicate suspicion, top-up/balance exclusions, invalid schemas/UTF-8, no HTTP-status success inference, undefined ratios, exact16KiB/40 rows/40-step retry chain.
+- 20 parallel same-key/body calls:20 HTTP200, one new receipt/liability/outbox.12 distinct calls after one success under test cap5:4 HTTP200/8 HTTP429. Restart preserves count5 and original replay increments0.
+- Current billing integration tests drive mock Hosted Checkout and signed completion through real Worker/DO modules. Config, consent, keys, expiry, mode, price/meter and period mismatches fail closed. Success redirect alone does not grant access.
+- 49 carried plus951 new calls stops at exactly1000 outstanding. Unverified previous-period invoice blocks new calls after month boundary; no month reset of outstanding debt. Carry is not added twice.
+- InvoicePayment-backed collection is idempotent. invoice.paid/minimum-charge balance movement alone is not actual cash. Canonical object retrieval handles duplicate/delayed failed events without regressing verified paid state. Different invoice IDs cannot re-invoice assigned receipts.
+- Persistent sender retries accepted/lost response with identical event/body within23h; after that it holds automatically. Raw-body HMAC, multiple v1 signatures, timestamp tolerance300s and tamper checks pass. Meter summaries use minute-aligned ranges and must agree before finalization/cancellation.
+- Cancellation immediately stops new usage; existing receipt replay increments0. Sub-50 waiver retries accepted/lost response once locally;50+ is not waived. SQLite rollback leaves no orphan receipt/liability/outbox. Additive legacy migration preserves every receipt, conservatively holds unknown records, and uses indexes for retained-ledger guards.
+- Caller-response-loss test commits one receipt, discards response, then retrieves with same key/body:count1 and increment0.503/RPC failures are documented as potentially ambiguous, not guaranteed free.
+- Static asset and single Dashboard-module tests verify demo/OpenAPI/terms/checkout-information pages, CSP and no operational/v1 route. All/v1 paths in the single module return503 without reading POST bodies. /health reports apiEnabled=false/saleActive=false.
+- `npm run build:demo` reproducibly copies source/OpenAPI, generates terms and a self-contained **76,038-byte** Dashboard module. No binding, migration, secret, model, Stripe call or storage is required for that static module.
+- Runtime dependency tree is empty; `npm audit --omit=dev` reports0 vulnerabilities. This does not certify dev dependencies or overall security.
+- Wrangler4.149.0 dry-run succeeds for both full API and static configs. Full API uses current `exports.AccountMeter={type:'durable-object',storage:'sqlite'}`, ACCOUNTS/ASSETS bindings and all3 activation flags false; bundle53.00KiB/gzip13.60KiB. Static config has no bindings. No remote deployment from this environment.
+- JavaScript syntax and `git diff --check` pass. GitHub Actions for `24e4da69fb3d03b8388ba758dd32fa1f81890041` passed (run38346572625). Latest commit/CI status is reported separately in the final outcome.
 
-## CPU evidence and remaining deployment blocker
+## Real connection evidence and remaining boundary
 
-[Recorded Node microbenchmark](benchmark-node.json): 1,000 warm iterations, 16,384 UTF-8 bytes, 40 rows per array, a 40-attempt retry chain. CPU p50 0.242 ms, p95 1.282 ms, p99 2.885 ms, maximum 4.902 ms. Includes parsing, validation, reconciliation, serialization and Node hash/HMAC. It excludes Workers ingress/WebCrypto/RPC/storage, platform cold starts and account contention. These numbers **do not establish deployed Workers Free CPU <=10 ms**.
+Authorized Stripe connector read confirms the existing sandbox price `price_1UPwToD1AvIZkMfK9yFCs9xN` is active, JPY1 inclusive, monthly metered, interval_count1 and mapped to the supplied meter; expanded product is active. No real sandbox Checkout/customer/subscription/meter-event/invoice/collection was created here. All integration exercise remains mock/workerd until approved secrets are entered and end-to-end sandbox checks pass.
 
-Actual workerd correctness tests pass at the maximum input. Before activation, profile Worker and DO execution on the authorized target account, including worst/cold/warm/concurrent cases; lower row/byte limits if needed. No decision to upgrade a plan is authorized.
+Parent PC confirms the existing Cloudflare account is Free/current$0 and created product placeholder `https://recalm-api-cost-check.rough-sound-e8d7.workers.dev`. Parent is placing the static module. This environment's browser tool cannot fetch that URL, and local Wrangler reports unauthenticated. Static-demo completion/URL verification is therefore a parent-PC check; this document does not claim it is already deployed. New token creation is still awaiting separate approval. No ops Actions secrets were retrieved or copied.
 
-No Cloudflare connector tools are available in this session, no CLOUDFLARE/WRANGLER environment credential names were found, and no cached Wrangler credential file exists at either standard location checked. The existing ops deployment workflow refers to Actions secrets, which were not obtained or copied. Read-only `wrangler whoami` also reports unauthenticated (no OAuth/login performed). Thus actual Workers deployment, target plan/free-quota confirmation and production CPU measurements are blocked by absence of an authorized usable Cloudflare connection. Static-only config is prepared and contains no operational API or storage.
+## CPU evidence
 
-GitHub connector confirms `push/admin` access to this public repository. Clone and Git push are usable even though this environment's `gh api` returns Forbidden. Use the existing GitHub connector for the draft PR; no OAuth or token creation needed.
+[Node core microbenchmark](benchmark-node.json):1000 warm runs,16384 bytes,40 rows per array/40-attempt chain. CPU p50 .242ms,p95 1.282ms,p99 2.885ms,max4.902ms. Includes parsing/validation/reconciliation/serialization and Node hash/HMAC; excludes Worker ingress/WebCrypto/DO/storage/billing/cold starts/contention. **It does not establish Workers Free CPU≤10ms.** Parent's placeholder p99 .82ms is also not the API benchmark.
 
-Commercial conditions and seller display are reflected from explicit user approval. Real sales remain blocked on production credential approval, deployment/CPU tests, billing setup by the parent, legal/retention/refund details, seller-information disclosure operations, and end-to-end payment/entitlement/cancellation verification. No live sales URL is claimed.
+Actual workerd correctness at maximum input passes. After approved deployment, profile both Worker and DO on actual target hardware, including retained-ledger size and cold/warm/concurrent cases. Narrow byte/row limits if necessary. No plan upgrade is authorized.
 
-## 0.3.0 Billing continuation
+## Launch blockers
 
-The initial 10-test pass and SHA above belong to the prior metering-only revision. The continuation implements Hosted Checkout, signed webhook lifecycle processing, invoice/carry/waiver verification, and a persistent metering outbox; it does not activate real sales.
-
-- Final full suite: **30/30 passed in 26.43s**, including the single Dashboard module and additive legacy-ledger migration.
-- Node unit tests use actual SQLite transactions and synthetic Stripe responses only. Workerd integration drives synthetic Hosted Checkout + signed completion through the real Worker/DO modules, then verifies concurrency, authentication, cancellation, persistence and response loss. No mock key is a real credential.
-- 49 carried liability plus 951 new calls reaches exactly JPY 1000; further calls return429. Unverified previous-period invoices stop new calls after month boundary. Carry is not counted twice. Settlement trusts signed notifications plus retrieved InvoicePayment records, not invoice.paid alone.
-- Persisted outbox survives accepted/lost response retry with the same event ID/body; first-attempt time is not reset. Beyond23h/unknown delivery stops automatic sending and billing. Automatic API receipt deduplication remains separate from that sender window.
-- Signed events are idempotent; canonical object retrieval avoids stale-event rollback. Wrong price/meter/mode/period, signature, consent or missing settings fails closed. Minute-aligned summaries and receipt/invoice overlap checks precede invoice finalization.
-- Cancellation is a local immediate stop with asynchronous provider settlement. Verified sub-50 balance is waived once; 50+ is not waived. Accepted/lost waiver response retries use the same operation ID and does not create a second local waiver.
-- Existing sandbox price read through the authorized Stripe connector confirms active JPY1 inclusive monthly metered price with the supplied meter ID; expanded product is now active. No real Checkout/customer/subscription/meter-event/collection request was performed in sandbox or live.
-- Wrangler4.149.0 dry-run with current **exports** SQLite declarations succeeds. Real deployment and Worker/DO CPU are still awaiting approved existing access/secrets and parent PC deployment. Parent's free placeholder URL exists; static demo completion is not claimed until verified separately.
-- Dashboard-pasteable static module contains no bindings/secrets/storage/billing and returns503 for every /v1/* path. /health explicitly reports apiEnabled=false/saleActive=false. It is reviewable in public/dashboard-demo-worker.js.
-
-Final configuration/build validation: runtime JavaScript syntax and git diff whitespace checks pass. Wrangler4.149.0 dry-run succeeds for the full exports/SQLite API config and static-only demo config with all three activation flags false. Final Dashboard module is 76,038 bytes, contains only static assets, requires no binding/migration/secret, and includes terms/checkout-information pages.
+Approved safe-input path for Worker-scoped CF Editor, sandbox restricted key, webhook signing secret and test customer/HMAC credentials; initial SQLite namespace/secret settings; real sandbox mid-month/renewal/carry/cancellation/grace/collection verification; Worker/DO CPU; final retention/refund/terms/disclosure operations; parent-owned live price/settings and end-to-end offering validation. API_ENABLED/BILLING_ENABLED/BILLING_VERIFIED remainfalse. No active sales URL is claimed.

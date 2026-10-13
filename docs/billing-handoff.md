@@ -37,13 +37,13 @@
 |---|---|
 |Account Read|GET /v1/account のaccount IDとcharges/payouts確認のみ。Write不要|
 |Products Read / Prices Read (`plan_read`)|GET /v1/prices/{id}?expand=product。product/price Write不要|
-|Customers Read|GET /v1/customers/{id}、cash_balance確認。APIはcustomerを作成しない|
+|Customers Read|GET /v1/customers/{id}、cash_balance確認。APIはcustomerを作成しない。cash balance展開に必要なRead groupが分離されている場合はそのReadのみ|
 |Customer invoice balance transactions Write|POST /v1/customers/{id}/balance_transactions。解約時50円未満の検証済みdebitだけを相殺。DashboardでCustomersに統合されている場合、その最小Write groupが必要|
 |Checkout Sessions Read/Write|POST /v1/checkout/sessions、GET /v1/checkout/sessions/{id}|
 |Subscriptions Read/Write|GET /v1/subscriptions（専用customer検査）、GET /v1/subscriptions/{id}、DELETE同idによる解約。新規作成はHosted Checkoutだけ|
 |Billing Meters Read / Event Summaries Read|GET /v1/billing/meters/{id}、GET同id/event_summaries|
 |Billing Meter Events Write|POST /v1/billing/meter_events|
-|Invoices Read/Write|GET /v1/invoices/{id}、POST同id(auto_advance変更)、POST同id/finalize。新規one-off invoice作成・直接pay呼出しはない|
+|Invoices Read/Write|GET /v1/invoices（customerが新規・専用か検査）、GET /v1/invoices/{id}、POST同id(auto_advance変更)、POST同id/finalize。新規one-off invoice作成・直接pay呼出しはない|
 |Invoice Payments Read|GET /v1/invoice_payments?invoice=...&status=paid。InvoicePayment作成不要|
 
 PaymentIntents/Charges/Refunds/Products/PricesのWrite、payouts/bank/token/OAuth/webhook管理のAPI権限、Metronome/Connectは不要。Webhook endpoint作成は承認済みDashboardの別工程で、このruntime keyに管理権限を付けない。SDK税登録未確認のためautomatic_taxは有効にせず、承認済み税込priceを厳格に検査する。税務表示/登録の最終確認は販売者担当が行う。

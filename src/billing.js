@@ -24,7 +24,8 @@ export class BillingService {
       await this.verifyCatalog();
       const customer=await this.client.request('GET','/v1/customers/'+this.customerId,{'expand[0]':'cash_balance'});
       const subs=await this.client.request('GET','/v1/subscriptions',{customer:this.customerId,status:'all',limit:2});
-      if(customer.deleted||customer.livemode!==this.c.livemode||customer.balance!==0||(customer.currency&&customer.currency!=='jpy')||customer.cash_balance||subs.data?.length||subs.has_more)throw new BillingError('customer_not_dedicated');
+      const invoices=await this.client.request('GET','/v1/invoices',{customer:this.customerId,limit:1});
+      if(customer.deleted||customer.livemode!==this.c.livemode||customer.balance!==0||(customer.currency&&customer.currency!=='jpy')||customer.cash_balance||subs.data?.length||subs.has_more||invoices.data?.length||invoices.has_more)throw new BillingError('customer_not_dedicated');
       const anchor=nextMonth(this.now()),expiresAt=Math.min(this.now()+3600,anchor-1);if(expiresAt<this.now()+1800)throw new BillingError('checkout_window_closed');
       const suffix=key.slice(0,8).split('').map(x=>String.fromCharCode(97+(x.charCodeAt(0)%26))).join('');
       action={status:'pending',firstAttempt:this.now(),expiresAt,params:{mode:'subscription',customer:this.customerId,'line_items[0][price]':this.c.priceId,'payment_method_collection':'always','subscription_data[billing_cycle_anchor]':anchor,'subscription_data[billing_mode][type]':'classic','subscription_data[proration_behavior]':'none','consent_collection[terms_of_service]':'required','custom_text[terms_of_service_acceptance][message]':'[利用条件]('+this.c.base+'/terms.html)に同意します。税込1円/成功call、UTC暦月後払い、50円未満繰越、解約時50円未満免除、未精算額を含め1,000円停止。',success_url:this.c.base+'/checkout-result.html',cancel_url:this.c.base+'/','integration_identifier':'recalm-cost-check-'+suffix,expires_at:expiresAt}};
