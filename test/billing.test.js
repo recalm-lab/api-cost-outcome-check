@@ -271,3 +271,49 @@ test('waiver rechecks cash funds on lost-response retries while preserving origi
   await service.cancelAndWaive();assert.equal(posts.length,2);
  }finally{s.db.close();}
 });
+
+test('failed 50 JPY invoice stays held across active next-month notification until verified payment settles once',async()=>{
+ const s=storage(),start=ready(s)-100,end=1793491200;for(let i=0;i<50;i++)add(s,'failed-month-'+i,start+100+i);
+ let now=end+100,canonical=invoice(start,end,50,{status:'open',amount_paid:0,amount_remaining:50});
+ const service=new BillingService(s,client(async(method,path)=>{assert.equal(method,'GET');if(path==='/v1/invoices/in_test')return canonical;if(path==='/v1/invoice_payments')return paidList(canonical);if(path==='/v1/subscriptions/sub_test')return subscription('2026-11');throw Error('unexpected endpoint');}),'cus_test',()=>now);
+ try{
+  await service.webhook({id:'evt_failed50',type:'invoice.payment_failed',data:{object:{id:'in_test'}}});
+  await service.webhook({id:'evt_active_next_month',type:'customer.subscription.updated',data:{object:{id:'sub_test'}}});
+  assert.equal(state(s).active,true);assert.equal(state(s).collectionHold,true);
+  assert.equal(add(s,'blocked-next-month',now).status,503);
+  const replay=add(s,'failed-month-0',now);assert.equal(replay.status,200);assert.equal(replay.replay,true);
+  assert.equal(one(s,'SELECT count FROM meter').count,50);assert.equal(one(s,'SELECT outstanding FROM meter').outstanding,50);
+  canonical={...canonical,status:'paid',amount_paid:50,amount_remaining:0};
+  const paid={id:'evt_paid50',type:'invoice.paid',data:{object:{id:'in_test'}}};
+  await service.webhook(paid);await service.webhook(paid);await service.webhook({...paid,id:'evt_paid50_again'});
+  assert.equal(one(s,'SELECT outstanding FROM meter').outstanding,0);assert.equal(one(s,'SELECT paid FROM meter').paid,50);assert.equal(state(s).collectionHold,false);
+  assert.equal(add(s,'recovered-next-month',now).status,200);
+ }finally{s.db.close();}
+});
+test('cancelled 50 JPY invoice resumes collection and verified InvoicePayment settles without waiver or replay mutation',async()=>{
+ const s=storage(),start=ready(s)-100,end=1793491200;for(let i=0;i<50;i++)add(s,'cancel50-'+i,start+100+i);
+ let canonical=invoice(start,end,50,{status:'open',amount_paid:0,amount_remaining:50,auto_advance:false});const requests=[];
+ const service=new BillingService(s,client(async(method,path,p)=>{
+  requests.push({method,path,p});
+  if(path==='/v1/invoices/in_test')return canonical;
+  if(path==='/v1/invoice_payments')return paidList(canonical);
+  if(path==='/v1/subscriptions/sub_test')return subscription('2026-11',{status:'canceled'});
+  throw Error('unexpected endpoint');
+ }),'cus_test',()=>end+100);
+ try{
+  service.requestCancel();saveState(s,{...state(s),cancelConfirmed:true});
+  await service.webhook({id:'evt_cancel50_open',type:'invoice.updated',data:{object:{id:'in_test'}}});
+  assert.deepEqual(requests.filter(r=>r.method==='POST'),[{method:'POST',path:'/v1/invoices/in_test',p:{auto_advance:true}}]);
+  assert.equal(add(s,'cancel50_new',end+100).status,503);assert.equal(add(s,'cancel50-0',end+100).replay,true);
+  canonical={...canonical,status:'paid',amount_paid:50,amount_remaining:0};
+  const paid={id:'evt_cancel50_paid',type:'invoice.paid',data:{object:{id:'in_test'}}};
+  await service.webhook(paid);
+  assert.ok(requests.some(r=>r.method==='GET'&&r.path==='/v1/invoice_payments'&&r.p.invoice==='in_test'));
+  const settled=one(s,'SELECT count,outstanding,paid,waived FROM meter');
+  assert.deepEqual({...settled},{count:50,outstanding:0,paid:50,waived:0});
+  await service.webhook(paid);await service.webhook({...paid,id:'evt_cancel50_paid_again'});await service.cancelAndWaive();
+  assert.deepEqual({...one(s,'SELECT count,outstanding,paid,waived FROM meter')},{...settled});
+  assert.equal(state(s).active,false);assert.equal(state(s).cancelRequested,true);
+  assert.equal(requests.filter(r=>r.method==='POST').length,1);
+ }finally{s.db.close();}
+});
