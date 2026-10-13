@@ -10,6 +10,10 @@ export const TARGET = Object.freeze({
   terms: '2026-10-13', checkoutKey: 'sandbox-checkout-v1-20261013'
 });
 const fail = () => {throw new Error('sandbox_lifecycle_failed');};
+export function safeFailure(body) {
+  const allowed=new Set(['billing_unavailable','account_mismatch','catalog_mismatch','customer_not_dedicated','stripe_retryable','stripe_rejected','checkout_mismatch','checkout_window_closed','checkout_delivery_unknown','checkout_pending','checkout_capacity','existing_contract','manual_reconciliation_required','billing_configuration_changed','billing_account_missing','unauthorized','not_available','invalid_input','invalid_idempotency_key','unsupported_media_type','timeout','unavailable']);
+  return body && typeof body==='object' && !Array.isArray(body) && Object.hasOwn(body,'error') && allowed.has(body.error) ? body.error : 'unclassified';
+}
 export function validateContext(vars, account) {
   if(account!==TARGET.account || vars.STRIPE_MODE!=='test' || vars.STRIPE_ACCOUNT_ID!==TARGET.stripeAccount || vars.PUBLIC_BASE_URL!==TARGET.base || vars.STRIPE_PRICE_ID!==TARGET.price || vars.STRIPE_METER_ID!==TARGET.meter || vars.TERMS_VERSION!==TARGET.terms || vars.BILLING_VERIFIED!=='false')fail();
 }
@@ -40,7 +44,10 @@ export async function execute(action, {key, account=TARGET.account, vars, fetchI
     if(idem)headers['idempotency-key']=TARGET.checkoutKey;
     let r;try{r=await fetchImpl(TARGET.base+path,{method,headers,redirect:'error',signal:AbortSignal.timeout(15000),...(body===undefined?{}:{body:JSON.stringify(body)})});}catch{fail();}
     console.log(JSON.stringify({action,path,httpStatus:r.status}));
-    if(!r.ok)fail();
+    if(!r.ok){
+      let code='unclassified';try{const text=await r.text();if(text.length<=4096)code=safeFailure(JSON.parse(text));}catch{}
+      console.log(JSON.stringify({action,path,httpStatus:r.status,errorCode:code}));fail();
+    }
     let t;try{t=await r.text();}catch{fail();}
     if(t.length>16384)fail();let b;try{b=JSON.parse(t);}catch{fail();}
     if(!b||Array.isArray(b)||typeof b!=='object')fail();return b;
