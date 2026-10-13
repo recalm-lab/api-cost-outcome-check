@@ -151,7 +151,8 @@ test('health saleActive requires live, three flags and local settings without St
   [{...live,FINGERPRINT_SECRET:''},false],
   [{...live,CREDENTIALS:'broken'},false],
   [{...live,CREDENTIALS:'{}'},false],
-  [{...live,CREDENTIALS:JSON.stringify({bad:credentials[Object.keys(credentials)[0]]})},false]
+  [{...live,CREDENTIALS:JSON.stringify({bad:credentials[Object.keys(credentials)[0]]})},false],
+  ...[{account:'toString'},{account:'missing-account'},{account:''},{maxMonthlySuccessfulCalls:1001},{expiresAt:'unknown'},{enabled:'true'}].map(extra=>[{...live,CREDENTIALS:JSON.stringify({[Object.keys(credentials)[0]]:{...credentials[Object.keys(credentials)[0]],...extra}})},false])
  ];
  for(const [bindings,expected]of cases){
   const provider=stripeMock(),mf=runtime(false,bindings,provider);
