@@ -108,3 +108,31 @@ test('thin hold persists atomically and prevents outbox/finalize/cancel activity
  await service.webhook({id:'evt_test_thin_01',object:'v2.core.event',type:'v1.billing.meter.error_report_triggered',related_object:{id:config.meterId,type:'billing.meter'}});
  assert.equal(one(s,'SELECT COUNT(*) AS count FROM webhooks').count,1);s.db.close();
 });
+
+test('thin manual hold followed by cancelled open invoice.updated retries cannot resume collection',async()=>{
+ const s=storage(),now=ready(s,'2026-10'),end=now+60,writes=[];
+ for(let i=0;i<50;i++)add(s,'cancel-open-'+i,now);saveState(s,{...state(s),cancelRequested:true,cancelConfirmed:true});
+ const inv=invoice(now-1,end,50,{status:'open',amount_paid:0,amount_remaining:50,auto_advance:false,hosted_invoice_url:'https://invoice.stripe.com/i/synthetic'});
+ const service=new BillingService(s,client(async(method,path,p)=>{if(method==='POST'){writes.push({path,p});return inv;}if(path==='/v1/invoices/in_test')return inv;throw Error('unexpected request');}),'cus_test',()=>end+120);
+ await service.webhook({id:'evt_test_meter_cancel_hold',object:'v2.core.event',type:'v1.billing.meter.error_report_triggered',related_object:{id:config.meterId,type:'billing.meter'}});
+ const event={id:'evt_cancel_open_updated',type:'invoice.updated',data:{object:{id:'in_test'}}};
+ await service.webhook(event);await service.webhook(event);await service.webhook({...event,id:'evt_cancel_open_updated_again'});
+ await service.observeInvoice(inv,false);await service.tick();await service.finalizePending();await service.cancelAndWaive();
+ assert.deepEqual(writes,[]);assert.equal(state(s).requiresManual,true);assert.equal(state(s).collectionHold,true);assert.equal(state(s).active,false);
+ assert.equal(one(s,'SELECT outstanding FROM meter').outstanding,50);assert.equal((await service.billingStatus()).paymentUrl,null);s.db.close();
+});
+test('cancelled open invoice resumes expected collection only without manual hold',async()=>{
+ const s=storage(),now=ready(s,'2026-10'),end=now+60,writes=[];
+ for(let i=0;i<50;i++)add(s,'normal-cancel-'+i,now);saveState(s,{...state(s),cancelRequested:true,cancelConfirmed:true});
+ const inv=invoice(now-1,end,50,{status:'open',amount_paid:0,amount_remaining:50,auto_advance:false});
+ const service=new BillingService(s,client(async(method,path,p)=>{if(method==='POST')writes.push({path,p});return inv;}),'cus_test',()=>end+120);
+ await service.webhook({id:'evt_normal_cancel_open',type:'invoice.updated',data:{object:{id:'in_test'}}});
+ assert.deepEqual(writes,[{path:'/v1/invoices/in_test',p:{auto_advance:true}}]);assert.equal(!!state(s).requiresManual,false);s.db.close();
+});
+test('cash settlement after meter hold records verified payment while preserving manual hold',async()=>{
+ const s=storage(),now=ready(s),end=now+60;for(let i=0;i<50;i++)add(s,'held-paid-'+i,now);
+ const inv=invoice(now-1,end,50),service=new BillingService(s,client(async(method,path)=>{assert.equal(method,'GET');if(path==='/v1/invoices/in_test')return inv;if(path==='/v1/invoice_payments')return paidList(inv);if(path==='/v1/subscriptions/sub_test')return subscription();throw Error('unexpected request');}),'cus_test',()=>end+120);
+ await service.webhook({id:'evt_meter_before_paid',object:'v2.core.event',type:'v1.billing.meter.error_report_triggered',related_object:{id:config.meterId,type:'billing.meter'}});
+ await service.webhook({id:'evt_held_invoice_paid',type:'invoice.paid',data:{object:{id:'in_test'}}});
+ assert.equal(one(s,'SELECT outstanding FROM meter').outstanding,0);assert.equal(one(s,'SELECT paid FROM meter').paid,50);assert.equal(state(s).requiresManual,true);assert.equal(state(s).collectionHold,true);assert.equal(state(s).active,false);s.db.close();
+});

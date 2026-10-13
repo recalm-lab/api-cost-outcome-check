@@ -53,7 +53,7 @@ export class BillingService {
     const latest=subscriptionState(sub,this.customerId,this.c,this.now()),old=state(this.s);
     if(old.subscriptionId&&old.subscriptionId!==sub.id)throw new BillingError('subscription_mismatch');
     const b={...old,...latest,customerId:this.customerId,priceId:this.c.priceId,meterId:this.c.meterId,mode:this.c.mode,stripeAccountId:this.c.accountId,checkedUntil:this.now()+300};
-    b.active=b.active&&b.checkoutComplete&&!b.cancelRequested&&!b.cancelConfirmed;
+    b.active=b.active&&b.checkoutComplete&&!b.cancelRequested&&!b.cancelConfirmed&&!b.requiresManual;
     saveState(this.s,b);return sub;
   }
   async webhook(event){
@@ -74,7 +74,7 @@ export class BillingService {
         const known=rows(this.s,"SELECT data FROM actions WHERE id LIKE 'checkout:%'").some(r=>JSON.parse(r.data).sessionId===session.id);
         if(!known||objectId(session.customer)!==this.customerId||session.livemode!==this.c.livemode||session.mode!=='subscription')throw new BillingError('checkout_mismatch');
         if(['checkout.session.completed','checkout.session.async_payment_succeeded'].includes(event.type)&&session.status==='complete'&&['paid','no_payment_required'].includes(session.payment_status)){
-          saveState(this.s,{...state(this.s),checkoutComplete:true,collectionHold:false});await this.refreshSubscription(objectId(session.subscription));
+          saveState(this.s,{...state(this.s),checkoutComplete:true,collectionHold:!!state(this.s).requiresManual});await this.refreshSubscription(objectId(session.subscription));
         }else if(event.type==='checkout.session.async_payment_failed')this.hold('payment_failed');
       }else if(event.type.startsWith('customer.subscription.')){
         await this.bindSubscription(object.id);await this.refreshSubscription(object.id);
@@ -108,7 +108,7 @@ export class BillingService {
       return;
     }
     const scope=this.invoiceScope(invoice);
-    if(['void','uncollectible'].includes(invoice.status)||invoice.status!=='paid'){this.s.sql.exec('INSERT INTO invoices (id,start,end,status) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status',invoice.id,scope.start,scope.end,invoice.status);saveState(this.s,{...b,collectionHold:true,pendingInvoice:null,billingInvoice:invoice.id});if(b.cancelConfirmed&&invoice.status==='open'&&invoice.auto_advance===false&&invoice.amount_due>=50&&invoice.amount_due<=one(this.s,'SELECT outstanding FROM meter WHERE id=1').outstanding)await this.client.request('POST','/v1/invoices/'+invoice.id,{auto_advance:true},'resume-cancel:'+invoice.id);return;}
+    if(['void','uncollectible'].includes(invoice.status)||invoice.status!=='paid'){this.s.sql.exec('INSERT INTO invoices (id,start,end,status) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status',invoice.id,scope.start,scope.end,invoice.status);saveState(this.s,{...b,collectionHold:true,pendingInvoice:null,billingInvoice:invoice.id});if(!b.requiresManual&&b.cancelConfirmed&&invoice.status==='open'&&invoice.auto_advance===false&&invoice.amount_due>=50&&invoice.amount_due<=one(this.s,'SELECT outstanding FROM meter WHERE id=1').outstanding)await this.client.request('POST','/v1/invoices/'+invoice.id,{auto_advance:true},'resume-cancel:'+invoice.id);return;}
     if(!trustedWebhook)return;
     if(!Number.isSafeInteger(invoice.amount_paid)||invoice.amount_paid<0||invoice.amount_remaining!==0||invoice.paid_out_of_band)throw new BillingError('invoice_payment_unknown');
     let collected=0;
@@ -129,7 +129,7 @@ export class BillingService {
       this.s.sql.exec("INSERT INTO invoices VALUES (?,?,?,'paid',?) ON CONFLICT(id) DO UPDATE SET status='paid',paid=excluded.paid",invoice.id,scope.start,scope.end,collected);
       this.s.sql.exec('UPDATE calls SET invoiceId=? WHERE createdAt>=? AND createdAt<?',invoice.id,scope.start,scope.end);
       this.s.sql.exec('UPDATE meter SET outstanding=outstanding-?,paid=paid+? WHERE id=1',delta,delta);
-      saveState(this.s,{...state(this.s),collectionHold:false,pendingInvoice:null});
+      saveState(this.s,{...state(this.s),collectionHold:!!state(this.s).requiresManual,pendingInvoice:null});
     });
     if(b.subscriptionId)await this.refreshSubscription(b.subscriptionId);
   }
@@ -201,7 +201,7 @@ export class BillingService {
   }
   async billingStatus(){
     const meter=one(this.s,'SELECT * FROM meter WHERE id=1'),b=state(this.s);let paymentUrl=null;
-    if(b.billingInvoice){const invoice=await this.client.request('GET','/v1/invoices/'+b.billingInvoice);this.invoiceScope(invoice);if(invoice.status==='open'&&invoice.hosted_invoice_url){const url=new URL(invoice.hosted_invoice_url);if(url.protocol==='https:'&&url.hostname==='invoice.stripe.com')paymentUrl=url.href;}}
+    if(b.billingInvoice&&!b.requiresManual){const invoice=await this.client.request('GET','/v1/invoices/'+b.billingInvoice);this.invoiceScope(invoice);if(invoice.status==='open'&&invoice.hosted_invoice_url){const url=new URL(invoice.hosted_invoice_url);if(url.protocol==='https:'&&url.hostname==='invoice.stripe.com')paymentUrl=url.href;}}
     return {outstandingJpy:meter.outstanding,collectedJpy:meter.paid,waivedJpy:meter.waived,active:!!(b.active&&!b.collectionHold&&!b.requiresManual&&!b.cancelRequested&&b.checkedUntil>this.now()&&b.periodEnd>this.now()),billingTimezone:'UTC',cancelRequested:b.cancelRequested,hold:!!b.collectionHold,manualReconciliationRequired:!!b.requiresManual,paymentUrl};
   }
   async tick(){if(state(this.s).requiresManual)return;await this.flush();await this.finalizePending();await this.cancelAndWaive();}

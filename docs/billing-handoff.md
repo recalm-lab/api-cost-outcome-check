@@ -76,3 +76,5 @@ sandboxの専用thin Event destinationを `/v1/stripe/meter-webhook` に追加�
 署名・mode・event IDを検証し、error_reportのrelated_objectが設定meterであることを確認する。no_meter_foundはmeterを特定できないため全設定アカウントを保守的に停止する。通知URLはfetchしない。詳細原因・該当利用量・返金可否を推測せず、event IDと永続manual holdのみを保存する。全アカウントへの停止保存後に200、途中失敗は503で同じ通知のretryを求める。新規利用・outbox・自動finalize・cancel精算は止まり、既存成功receiptの同一retryは0円。手動解除手順は未実装で、再照合と個別の運用承認が必要。
 
 missing/reused meter secretでは全課金経路をfail closedにする。現在公開済みSHA33c2588にはこの修正が入っていないため、販売停止flagを維持して修正版の承認済みdeploy後に2宛先を登録する。
+
+manual hold後のinvoice.updated再送でもcancel後回収再開のauto_advance=trueを送らない。支払済み証跡は台帳へ反映するがmanual holdを解除しない。Checkout/subscription再通知も利用を有効化せず、billing statusのpaymentUrlはnullとする。自動finalize/outbox/cancel精算を含めmanual holdは自動解除しない。
