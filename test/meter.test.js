@@ -26,3 +26,18 @@ test('query guards use indexes at retained-ledger scale; legacy receipts are pre
  // init's migration runs only additive ALTER operations and conservative liabilities.
  initMeter(old);assert.equal(one(old,'SELECT outstanding FROM meter').outstanding,1);assert.equal(one(old,'SELECT sendState FROM calls').sendState,'hold');assert.equal(one(old,'SELECT COUNT(*) AS count FROM calls').count,1);db.close();
 });
+
+test('settlement clearing outstanding does not reopen the same-month 1000 successful-call cap',()=>{
+ const s=storage(),now=ready(s);
+ try{
+  for(let i=0;i<1000;i++)assert.equal(record(s,'settled-cap-'+i,'2026-10',now+i).status,200);
+  // Apply the ledger result of verified collection; monthly receipts must remain intact.
+  s.sql.exec("UPDATE calls SET invoiceId='in_settled_cap'");
+  s.sql.exec("INSERT INTO invoices VALUES ('in_settled_cap',?,?,'paid',1000)",now,now+1000);
+  s.sql.exec('UPDATE meter SET outstanding=0,paid=1000 WHERE id=1');
+  assert.equal(record(s,'after-collection','2026-10',now+1001).status,429);
+  const replay=record(s,'settled-cap-0','2026-10',now+1001);assert.equal(replay.status,200);assert.equal(replay.replay,true);
+  assert.equal(one(s,"SELECT count FROM periods WHERE period='2026-10'").count,1000);
+  assert.deepEqual({...one(s,'SELECT count,outstanding,paid FROM meter')},{count:1000,outstanding:0,paid:1000});
+ }finally{s.db.close();}
+});
