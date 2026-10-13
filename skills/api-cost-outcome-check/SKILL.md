@@ -54,3 +54,7 @@ All numbers below are invented, not customer evidence. The records are assumed t
 - **Normal:** Task A met the owner's success criterion; request A1 has a final bill line of USD 0.20 and a delivered artifact. Result: USD 0.20 per successful task; no discrepancy established; no paid diagnostic suggestion.
 - **Retry:** Task B succeeded on B2 after B1 failed. Separate final bill lines are USD 0.10 each; current provider terms make both attempts billable. Result: USD 0.20 per successful task, including the failed attempt. Check the reason for retry and available controls. Do not label USD 0.10 a billing error or confirmed avoidable loss.
 - **Missing join:** A final invoice totals USD 1.00, but three task records have no request IDs and their outcomes are unknown. Result: USD 1.00 billed in the invoice scope; per-task attribution and cost per successful task unknown. Ask which existing local records can resolve the join. No fabricated allocation or sales proposal.
+
+## Optional related implementation
+
+[Recalm API Cost Check documentation](../../README.md) describes a separate, development-stage API and a free synthetic demo. This checklist remains free and read-only; the link does not authorize uploading records, buying a service, or granting access.

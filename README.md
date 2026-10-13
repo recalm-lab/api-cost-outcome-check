@@ -1,29 +1,68 @@
-# API cost and task outcome check
+# Recalm API Cost Check
 
-**Preparation-stage project. No sales. The proposed one-time USD 49 paid diagnostic is a hypothesis and is not being offered. No checkout or data intake is available.**
+**開発版。APIの実売・顧客キー発行・決済受付は未開始です。** 承認済み料金は、成功call 1回あたり **1円（税込・JPY）**、月次後払いです。月次精算額が50円未満なら翌月へ繰り越し、解約時の未精算額が50円未満なら免除します。利用者ごとにUTC月1,000円（1,000成功call）で停止します。照合APIの成功回数の計量とカード決済は別で、決済・提供導線の検証は未完了です。1円ずつカード決済する実装はありません。
 
-Prepared by recalm-lab. This Markdown checklist helps an owner or their agent compare API charges with usable task outcomes, using records they already have permission to inspect.
+請求明細と実行結果のJSONを、明示的なrequest IDで決定論的に照合する最小APIです。外部モデル・有料APIは呼びません。対応不明 (`unknown_attribution`)、重複疑い (`duplicate_suspected`)、失敗後のretry (`failed_retry`) を区別します。成功の定義は利用者が指定し、タスク結果を `success / failure / unknown` として申告します。HTTP 200をタスク成功の根拠にしません。
 
-## What you get for free
+## 無料で確認する
 
-[Read the checklist](skills/api-cost-outcome-check/SKILL.md), including three synthetic examples. It covers retries, incomplete attribution, prepaid balances, and the difference between an unsuccessful task and an incorrect bill. No installation is necessary to read it. An agent may use it only within the owner's existing task and access permissions.
+既存の[無料チェックリストと3つの合成例](skills/api-cost-outcome-check/SKILL.md)を利用できます。このskillはローカル・read-onlyの手順で、データ送信を許可しません。APIは別の任意機能で、利用には本人の明示的な入力送信許可と契約が必要です。skill内に残るUSD 49の診断案は過去の未販売仮説で、このAPIの価格ではありません。
 
-The output is a short evidence-based explanation: what was billed, what succeeded, what remains unknown, and which existing free check or remedy to try first. It is a procedure, not an automated parser, accounting certification, or guarantee of savings or refunds.
+[合成デモのソース](public/index.html)は架空の3例だけをブラウザ内で処理します。実データ入力欄・アップロード・checkoutはありません。静的ホスティングURLはまだありません。ローカル表示は `npm run build:demo` の後 `python3 -m http.server 8000 --directory public`。開いた `http://localhost:8000` で例を選びます。
 
-## Privacy and permissions
+## APIと入力
 
-This package contains no server, script, paid API, tracking component, or data-upload form. It requires no API key. Keep original logs, invoices, credentials, customer data, and private identifiers in your authorized workspace. Do not post them in public issues. The checklist does not authorize external contact, purchases, new access, or configuration changes.
+[OpenAPI 3.1](docs/openapi.json)と[本番準備一覧](docs/production.md)、[利用条件の下書き](docs/terms-draft.md)、[決済担当への引き継ぎ](docs/billing-handoff.md)を参照してください。`POST /v1/check` は既定で503です。認証・利用権・本番決済の確認前に有効化しません。
 
-An optional third-party installer has its own behavior and telemetry; it is not part of this Markdown checklist. Review the installer, destination, and permissions before using it. Reading this checklist does not require installing anything; installation needs the owner’s separate approval for its destination and permissions.
+```json
+{
+  "scope": "single-provider-account-window",
+  "successCriterion": "owner-usable-artifact",
+  "tasks": [{"id": "A", "outcome": "success"}],
+  "attempts": [{"requestId": "A1", "taskId": "A", "outcome": "success"}],
+  "bills": [{"id": "b1", "requestId": "A1", "amount": 20, "unit": "money:USD:2", "evidence": "confirmed", "kind": "usage"}]
+}
+```
 
-## Limits and commercial disclosure
+同じprovider・account・期間・成功基準の記録だけを1入力にまとめます。`scope` と `successCriterion` は公開してもよい任意の識別子で、本文や個人情報ではありません。請求のrequestIdがなければ対応はunknownです。attemptは存在するtaskを参照し、retryOfは同じtaskの既存attemptを参照します。循環・重複IDは入力不備です。任意フィールドの追加やHTTP状態による推定は受け付けません。
 
-This is unvalidated early-release material. The examples are synthetic, not customer results. There is no verified customer acquisition, willingness to pay, revenue, or product effectiveness evidence for this project. Public API problem reports do not establish demand for this service.
+金額は非負整数、各明細最大1,000,000,000最小単位。`money:USD:2` の20はUSD 0.20、`money:JPY:0` の1は1円、`credits:vendor:0` は別のcredits単位です。末尾は小数桁数を明示します。通貨コードの実在や各通貨の標準小数桁は検証しません。利用者が正しい単位を指定してください。異通貨・credits・小数桁・確定/推定/不明の根拠区分は別集計です。換算はしません。
 
-Recalm is exploring whether an additional diagnosis could be useful after free remedies fail. USD 49 is a provisional one-time price idea, not a live offer or recurring charge. Scope, delivery time, eligibility, payment and refund/cancellation terms have not been finalized. Do not send logs or payment, and do not interpret a recommendation as permission to buy. If there is no evidenced unresolved need, no paid proposal should follow.
+`kind: topup / balance` は利用料から除外し二重計上を避けます。利用料の同じrequest IDに複数明細がある場合は重複疑いです。複数の正当な料金項目の場合もあり、不正の判定ではありません。総額から疑い分を勝手に差し引きません。
 
-## Release status and license
+成功タスクあたりの費用は、失敗attemptも含む同じscopeの費用を成功タスク数で割る**整数の分子・分母**で返します。ゼロ成功、結果不明、対応不明、重複疑い、根拠区分unknownの場合は `null`。入力の完全性と根拠は自己申告で、独立した請求・成果の検証ではありません。成功タスク数は入力全体のscopeです。通貨別の成功タスク数や配賦は推測しません。
 
-Version: `0.1.0`. Repository: `recalm-lab/api-cost-outcome-check`. This release contains a free Markdown procedure and synthetic examples. No skill-directory listing, discovery performance, or compatibility certification is claimed. Review the actual revision before use.
+## 計量・認証・保存
 
-Licensed under the [MIT License](LICENSE), copyright (c) 2026 Recalm. Commercial use, modification, and redistribution are permitted under that license, including its notice and warranty-disclaimer requirements.
+成功call = 有効な入力の照合完了後、SQLiteの成功記録を原子的に確定した1論理call。unknownや疑いが含まれる結果も有効な処理完了です。成果達成や節約の成功とは異なります。入力不備、認証拒否、409、上限超過、確定前の処理エラーは増分0。同じ利用者・同じidempotency key・同一UTF-8本文のretryは増分0、異なる有効本文は409です。空白、キー順序も本文の一部なのでretryでは元の本文をそのまま送ります。
+
+利用者単位のSQLite Durable Objectで、idempotency記録と成功回数を同じtransactionSyncに入れます。別キーの並列callも契約安全上限を越えて消費しません。上限は回数券の残高ではなく、UTC月ごとの成功回数の契約上限（最大1,000）。別途、receipt保存を制限する生涯100,000callの安全上限がありますです。UTC月別の成功回数も保存し、請求業者に依存しない集計が可能です。Stripeイベント送信・請求・支払いは実装していません。
+
+本文・照合結果・平文顧客キーは永続保存しません。保存するのはidempotency keyのHMAC、本文のHMAC、algorithm version、初回成功のUTC月、回数だけです。入力をログ出力しません。結果はretryごとに再計算します。高エントロピー顧客キーはSHA-256ハッシュだけを認証registryに登録し、期限・enabled・account・上限を設定します。キー生成・発行は別承認が必要です。
+
+初版はreceiptを自動削除しません。重複排除は同じaccount namespace・HMAC秘密値・algorithm v1・receiptが維持される間だけ有効です。**永久保証ではありません。** 認証停止後はretryも401。削除・秘密値変更・namespace移行・旧アルゴリズム廃止時は停止して移行条件を決めます。障害復旧でreceiptを失うと二重計量の危険があるため、復旧後に自動で請求を再開してはいけません。確定後の通信切断では利用者が応答を受け取れない場合があり、同じkey/bodyの再送で回数増分0にできます。
+
+## 上限・検証・公開状態
+
+最大16 KiB（UTF-8本文）、請求・attempt・task各40件。本文読み取りは2秒で打ち切ります。Cloudflare Workers Freeの10ms CPU枠は別の上限です。Nodeベンチマークは代替証明になりません。デプロイ先で最大入力・cold/warm・並列時のCPU計測を完了してから有効化し、超過する場合は件数/サイズを狭めます。[検証記録](docs/verification.md)を参照してください。
+
+Runtime依存はありません。開発テストだけ固定版Miniflare/workerdを使います。
+
+```sh
+npm ci --ignore-scripts
+npm test
+npm run bench
+npm run build:demo
+```
+
+[SQLite Durable ObjectsはWorkers Free対応](https://developers.cloudflare.com/durable-objects/platform/pricing/)です。無料枠の超過時はエラーになります。実アカウントのプランや共有利用量は未確認で、有料資源は作成していません。既存Cloudflare設定はopsのwake用で、このcheckoutに認証はありません。opsへの商品コード混入や、秘密値の取得は行っていません。
+
+## 販売者表示（販売開始前）
+
+販売者: **園田敏之**。連絡先・特商法に関する開示請求窓口: **[info@recalm.jp](mailto:info@recalm.jp)**。住所・電話番号は常時公開せず、購入検討者から同窓口へ請求があった場合に購入手続き前に開示する方式です。メール件名を「Recalm API Cost Check 事業者情報の開示請求」とし、購入検討中である旨と返信先をお知らせください。実住所・電話はこの公開repoには記載しません。開示対応の運用確認も提供導線の検証に含めます。
+
+その他の契約条件は[利用条件の下書き](docs/terms-draft.md)に明記しています。料金承認だけで本番APIや決済が有効になったとは表示しません。
+
+## ライセンス
+
+[MIT](LICENSE)。合成例は顧客実績ではなく、需要・節約・返金・売上・SLAを保証しません。無料の確認で解決する場合はそこで終了できます。
