@@ -49,7 +49,7 @@ function saleConfigured(env){
     const registry=JSON.parse(env.CREDENTIALS);
     if(!registry||Array.isArray(registry)||typeof registry!=='object')return false;
     const entries=Object.entries(registry);
-    return entries.length>0&&entries.every(([key,value])=>/^[0-9a-f]{64}$/.test(key)&&value&&typeof value.enabled==='boolean'&&Number.isFinite(value.expiresAt)&&Number.isSafeInteger(value.maxMonthlySuccessfulCalls)&&value.maxMonthlySuccessfulCalls>=1&&value.maxMonthlySuccessfulCalls<=1000&&!!config.accounts[value.account]);
+    return entries.length>0&&entries.every(([key,value])=>/^[0-9a-f]{64}$/.test(key)&&value&&typeof value.enabled==='boolean'&&Number.isFinite(value.expiresAt)&&Number.isSafeInteger(value.maxMonthlySuccessfulCalls)&&value.maxMonthlySuccessfulCalls>=1&&value.maxMonthlySuccessfulCalls<=1000&&/^[A-Za-z0-9_-]{1,64}$/.test(value.account)&&Object.hasOwn(config.accounts,value.account));
   }catch{return false;}
 }
 export default {
