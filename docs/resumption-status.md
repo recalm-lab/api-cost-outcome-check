@@ -5,7 +5,7 @@
 ## 引き継いだ状態
 
 - 独立checkout: `/workspace/api-cost-outcome-check`。`/workspace/recalm-ops` は変更なし、作業前後のstatusはclean。
-- 取得HEAD: `012810836bd6149c5554f25d3a57c4ca537eed25`。元の `5c72dea4babaa2821f06b8e4da4b5a7d22bbb5f1` 以後の33commitを確認。PRはopen/draft。
+- 旧引継ぎ時の取得HEAD: `012810836bd6149c5554f25d3a57c4ca537eed25`。元の `5c72dea4babaa2821f06b8e4da4b5a7d22bbb5f1` 以後の33commitを確認。PRはopen/draft。
 - GitHubの最新確認でin_progress / queued / waitingは各0件。[最新HEADのCI](https://github.com/recalm-lab/api-cost-outcome-check/actions/runs/38445450302)はsuccess、job115462503066のログは70 tests / 70 pass / 0 fail。未確認の旧承認要求を実行し直していない。
 - 当初の46テストという引継ぎより作業が進んでいる。現在のsandbox実績とCPU集計は[production.md](production.md#2026-10-13-確認済みsandbox実績と本番切替の設計案)を正とする。古い文書の「未保存」「未配置」「未接続」は当時の記録であり、再入力・再配置の指示として使わない。
 
@@ -31,6 +31,17 @@
 1. 実Worker最大16KiB/各40件/40段retry、cold/warm、並列、保管receipt増加条件を対象リクエストに対応付けてCPU測定する。既存24時間集計やNode benchmarkをこの結果の代わりにしない。
 2. Worker月境界と初月、invoice grace、回収失敗・50円以上解約回収の実runtime検証範囲を確認する。mock/workerdやStripe clockのみの確認結果を実Worker結果に置き換えて表示しない。
 3. 正式条件の保持期間・計量訂正/返金・責任・支払時期と、購入前の販売者情報開示運用を確定し、既存terms生成経路とCheckout同意版へ反映する。
-4. live専用商品/価格/meter/2種類Webhook・非秘密manifest・customer/account/認証導線と、closed配置・古いsandbox deployment権限の扱いを準備する。実行は本番開始承認の対象。sandbox DOの請求先/modeをliveへ付け替えない。
+4. 本人作成済みlive meterの正確IDを確認し、live専用商品/価格/2種類Webhook・非秘密manifest・customer/account/認証導線と、closed配置・古いsandbox deployment権限の扱いを準備する。meterを重複作成しない。実行は本番開始承認の対象。sandbox DOの請求先/modeをliveへ付け替えない。
 
 本記録の作業ではcode再配置、flag変更、新契約・実課金、権限拡張、秘密の再生成を行っていない。事業継続と実売開始は別の状態であり、実売検証完了とは報告しない。
+
+
+## 遅れて届いた旧資料との整合
+
+今回の文書修正基点headは `3cf745f71416d0c64598091b0fabb4880324dee6` と再取得で一致した。旧61002a7系と01281083系は既に統合済みで、本体・modeガード・70回帰を保持している。[基点のCI38465298320](https://github.com/recalm-lab/api-cost-outcome-check/actions/runs/38465298320)は成功済み。コードを巻き戻さない。
+
+live `acct_1TqptlRUIufKFmuE` の本API用meterは**本人の作成報告済み**。event_name `recalm_api_cost_check_success_v1`、sum/raw/default payload（stripe_customer_id/value）という報告を引き継ぎ、正確meter IDの本人貼付・対象modeとの照合を待つ。まだID/設定を直接読み戻したとは扱わない。**新しいmeterの重複作成は不要**。
+
+live Product/Price/本API用snapshot・thin Webhookは未設定。未発効規約とlive Secret3つ（STRIPE_RESTRICTED_KEY、STRIPE_WEBHOOK_SECRET、STRIPE_METER_WEBHOOK_SECRET）も未完のまま。3秘密値の設定だけで開始可能とは案内しない。
+
+[sandbox-save-next](sandbox-save-next.md)を過去資料へ変更し、現在のhelper再生成・上書きは不要と明記。[sandbox-connection-evidence](sandbox-connection-evidence.md)にはmetadata診断の値未検証と、既存の署名Webhook/契約/1call/retry0/解約免除/49→50回収の実証を区別して併記した。今回の整合は関連文書のみであり、Secret・実workflowタグ・デプロイ・Stripe/CF設定は変更していない。
