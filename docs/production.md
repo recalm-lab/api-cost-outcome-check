@@ -61,7 +61,7 @@ storage rollback/PITRでreceipt・outbox・settlementが巻き戻ると外部送
 - [66テスト成功/失敗0・build/demo生成物一致](https://github.com/recalm-lab/api-cost-outcome-check/actions/runs/38428499439/job/115404135031)。最大16KiB/各40件/40段retry chain正常処理も含む。
 - 既存24時間/全デプロイ/全経路のCPU集計: Worker P50 0.99ms/P90 1.74ms/P99・P999 2.27ms、wall time P50 27.79ms/P90 138ms/P99・P999 249ms。DO CPU P50 4.09ms/P90 8.98ms/P99・P999 10.74ms。Worker139 invocations/Errors0、DO36 requests/Errors0。保存Observabilityは無効で、最大入力に紐付けた個別実環境CPU・cold/warm・保管件数増加時の実測は未完了。DOのCPU枠をWorker Free HTTP10msと混同しない。
 
-### 限定uploaderの最小設計案（未実装）
+### 限定uploaderの最小設計案（一部コード準備済み・未配置）
 
 現行 `scripts/upload-existing-worker.mjs` はtest・3flag=falseをmetadataへ常に含めるため、live設定後の再実行でtestへ戻す危険がある。
 
@@ -71,9 +71,9 @@ storage rollback/PITRでreceipt・outbox・settlementが巻き戻ると外部送
 4. live account/price/meter/event/origin/正式terms版/customer mappingを別manifestで固定する。test clock/customer/priceをliveへ流用せず、対象customer/objectのlivemodeと合成/実運用範囲を取り違えない。
 5. sandboxの既存account DOをlive請求先へ付け替えない。現行stateはmode/customer/price/meter/Stripe account変更を拒否する。liveは別のaccount識別子のDO instanceを使い、sandbox台帳・HMAC・namespace/classを保持する。credential/account対応は別確認が必要。
 
-### healthと販売表示の最小設計案（未実装）
+### healthと販売表示の最小設計案（一部コード準備済み・未配置）
 
-現行healthはtest以外を `preparing`、saleActiveを常にfalseにする。準備中のstatic demoと、本体の設定状態を区別する。
+現行healthはtest以外を `preparing`、saleActiveを常にfalseにしていた。準備コードではlocal設定の検証を含める。準備中のstatic demoはfalseのまま、本体の設定状態と区別する。
 
 - `saleActive` は少なくともSTRIPE_MODE=live、API_ENABLED/BILLING_ENABLED/BILLING_VERIFIED=true、承認済み正式条件版、対象を固定したbillingConfigの検証成功を満たす場合だけtrue。それ以外はfalse。healthはStripeへ回収・契約変更を発行せず、Secretや顧客一覧を返さない。
 - statusはsandbox/preparing/live_enabled等の「設定状態」を返し、外部接続検証・個別契約の利用可否を保証する表現にしない。個別契約状態は認証付きbillingで確認する。
@@ -85,3 +85,13 @@ storage rollback/PITRでreceipt・outbox・settlementが巻き戻ると外部送
 2026-10-13の別担当による独立読み取りでは、live `acct_1TqptlRUIufKFmuE` に本API用Product/Price/Webhookは未作成。既存の別商品・別サービスWebhookには触れない。live meter一覧はこの追記時点で未確認。
 
 本人に入力いただくlive SecretはSTRIPE_RESTRICTED_KEY、STRIPE_WEBHOOK_SECRET、STRIPE_METER_WEBHOOK_SECRETの3つを準備後にまとめて案内する。これだけで販売可能とは扱わない。live商品/価格/meter/2種類のWebhook設定、非秘密manifest、live専用customer/account/認証対応、正式条件、提供導線を別途整える。新キー生成・権限拡張・実決済は現在の準備範囲に含まない。
+
+
+### 追加の安全準備コード（再配置なし）
+
+- sandbox uploaderはPUT前の既存bindingsのSTRIPE_MODEが一意なplain_text/testの場合だけ進む。live・欠落・不明・異種binding・重複は `existing_worker_not_sandbox` でPUTゼロ。Secret値を読み取らず、既存Secret保持と読み戻しを維持する。
+- `scripts/deploy-existing-worker.mjs` は `legacy_deployment_disabled_use_scoped_uploader` で直ちに停止し、`deploy-sandbox.yml` の旧jobもfalse条件で無効化した。旧Wrangler経路は使用しない。
+- **古いSHA/既存sandboxタグの再実行には新しいガードは適用されない。** GitHub ActionsはそのSHAのworkflow/scriptを使う。live設定後は過去sandbox run/tagを再実行しない。新しいコードだけでは過去SHAの権限行使を止められないため、live開始前に既存deployment credentialの適用範囲・古いrunの実行権限を確認する。新しい権限やsecretを勝手に作らない。
+- health準備コードはlive＋3flags=true＋billingConfigとACCOUNTS/HMAC/credential registryのローカル構造検証成功時だけsaleActive=true。これは設定状態であり、外部接続や個別キーの有効期限・契約利用権の証明ではない。Stripe通信と秘密出力を行わず、static-only demoはfalseを維持する。
+- live-closed uploadは**設計のみ**。配置先が既にmode=live/3flags=falseであることを事前条件とし、mode・通常vars・Secret・SQLite bindingを保持するcode-only経路を想定する。test→live切替をuploadで行わず、target不明なら変更しない。今回はこの経路を実装・実行せず、実際のsandbox flagsも変更していない。
+- 正式条件は承認後に `docs/terms-draft.md` → `scripts/build-terms.mjs` → `public/terms.html` の既存経路で生成する。未承認本文の公開・発効は行わない。
