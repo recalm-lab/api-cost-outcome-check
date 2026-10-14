@@ -1,7 +1,7 @@
 name: Configure approved live connection with sales closed
 on:
   push:
-    tags: ['recalm-live-closed-connection-*']
+    tags: ['recalm-live-closed-connection-*', 'recalm-live-closed-config-only-*']
 permissions:
   contents: read
 concurrency:
@@ -9,7 +9,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   connect:
-    if: github.repository == 'recalm-lab/api-cost-outcome-check' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/recalm-live-closed-connection-')
+    if: github.repository == 'recalm-lab/api-cost-outcome-check' && github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/recalm-live-closed-connection-') || startsWith(github.ref, 'refs/tags/recalm-live-closed-config-only-'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -27,10 +27,12 @@ jobs:
       - name: Build only the reviewed source from a clean checkout
         run: node scripts/build-reviewed-worker.mjs 01e29255e421ede7f0e9999051d224fac92f4ac5 "$RUNNER_TEMP/recalm-live-closed-reviewed.js"
       - name: Read exact existing closed test Worker and opaque Secret metadata
+        if: startsWith(github.ref, 'refs/tags/recalm-live-closed-connection-')
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: node scripts/prepare-worker-readonly.mjs "$RUNNER_TEMP/recalm-observed-settings.json"
       - name: Content-only upload while all test sales flags remain false
+        if: startsWith(github.ref, 'refs/tags/recalm-live-closed-connection-')
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: node scripts/upload-test-closed-worker.mjs 01e29255e421ede7f0e9999051d224fac92f4ac5 "$RUNNER_TEMP/recalm-observed-settings.json"
