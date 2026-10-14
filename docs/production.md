@@ -1,5 +1,7 @@
 # 本番準備と操作の境界 — 0.3.0
 
+現在状態は[2026-10-14の本番閉鎖接続証跡](live-connection-2026-10-14.md)。下記は時点別の準備履歴であり、live未適用/キー未保存/通知先未作成という過去記述を現在状態として扱わない。[販売前の最小運用案](sale-operations-draft.md)に残件・本人決定事項をまとめた。
+
 販売開始前のrunbook。sandbox実接続の確認結果は末尾の2026-10-13追記を参照。初期配置の3flagはすべてfalseだが、sandbox E2E時にはAPI_ENABLED/BILLING_ENABLED=true、BILLING_VERIFIED=falseで検証した。これはlive開始の承認・実行を意味しない。live商品/価格/Webhookと正式条件、live設定・提供導線の確認を終えるまで販売しない。
 
 ## 配置経路

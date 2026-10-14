@@ -1,5 +1,7 @@
 # 閉鎖状態の本番接続確認 — 2026-10-14
 
+後続の権限画面読み戻し・billing既存配信なし・保持/削除/配布/返金の未承認運用案は[販売前運用](sale-operations-draft.md)、最大入力のローカルworkerd測定は[負荷確認](local-workerd-load-2026-10-14.md)を参照。いずれも販売開始・本番課金検証済みという意味ではない。
+
 本人がAccounts/Products/Prices/Billing MetersのReadのみ、他権限/Connect列Noneの本番キー作成を承認した。キー名 `recalm-api-cost-check-live`。Stripeの「新しいAPIキー」表示で作成を確認し、本人からWorkerの既存Secret型 `STRIPE_RESTRICTED_KEY` への保存完了を受領。値は取得していない。
 
 Meter通知先 `ed_61VZjIA2JGNbpTnh416V0Dr7RqHNpbTY9mEkqeEfwPR2` のSecret更新ダイアログで有効期限「即時」(0)を選択し、最終実行と新しい値のSecret型 `STRIPE_METER_WEBHOOK_SECRET` 保存は本人が行ったと報告。更新ダイアログが閉じた状態を読み戻した。署名Secretの値・画面は記録しない。旧Secret即時失効は画面選択と本人完了報告に基づく。独立したStripe失効履歴や旧値で署名したリクエストの拒否は未確認。ローテーション後の現在署名は下記の実HTTPで検証済み。
