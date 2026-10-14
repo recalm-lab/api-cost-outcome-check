@@ -75,3 +75,14 @@ test('mode/flags/namespace fail before PUT; test bootstrap requires test with th
  const bindings=baseBindings.map(b=>b.name==='STRIPE_MODE'?{...b,text:'test'}:b);
  assert.equal((await run({bindings,mode:'test'})).error,null);
 });
+
+test('absent observability stays absent; presence transitions stop before or after PUT',async()=>{
+ const absent=Object.fromEntries(Object.entries(baseSettings).filter(([k])=>k!=='observability'));
+ const allowed=await run({settings:absent,expected:absent});assert.equal(allowed.error,null);
+ assert.equal(Object.hasOwn(retainedSettings(absent),'observability'),false);
+ for(const [settings,changedSettings]of [[absent,baseSettings],[baseSettings,absent]]){
+  const before=await run({settings,expected:settings,changed:{settings:changedSettings}});assert.equal(before.error,'preflight_remote_changed');assert.ok(before.calls.every(c=>c.method==='GET'));
+  const after=await run({settings,expected:settings,after:{settings:changedSettings}});assert.equal(after.error,'remote_retention_failed');
+ }
+ const invalid=await run({settings:{...baseSettings,observability:null}});assert.equal(invalid.error,'remote_settings_incomplete');assert.ok(invalid.calls.every(c=>c.method==='GET'));
+});
