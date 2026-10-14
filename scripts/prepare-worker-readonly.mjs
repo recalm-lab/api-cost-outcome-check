@@ -15,12 +15,18 @@ export async function prepare(fetcher=fetch){
  if(service.id!==worker||service.default_environment?.environment!=='production')throw Error('worker_identity_mismatch');
  const bindings=await get('/services/'+worker+'/environments/production/bindings');
  if(!Array.isArray(bindings)||new Set(bindings.map(b=>b.name)).size!==bindings.length)throw Error('ambiguous_binding');
- const settings=retainedSettings(await get('/scripts/'+worker+'/settings'));
+ const raw=await get('/scripts/'+worker+'/settings');
  const flags=Object.fromEntries(['STRIPE_MODE','API_ENABLED','BILLING_ENABLED','BILLING_VERIFIED'].map(name=>{
   const b=bindings.find(b=>b.name===name);if(b?.type!=='plain_text'||typeof b.text!=='string')throw Error('flags_unknown');return [name,b.text];
  }));
  const b=bindings.find(b=>b.name==='ACCOUNTS');
  if(b?.type!=='durable_object_namespace'||b.class_name!=='AccountMeter'||b.namespace_id!=='0b8d1c5cea78485d9d9ae6a62ed98b6f')throw Error('namespace_mismatch');
+ let settings;
+ try{settings=retainedSettings(raw);}catch(error){
+  const keys=['compatibility_date','compatibility_flags','observability','logpush','tags','tail_consumers','placement','limits','usage_model','cache_options','exports'];
+  console.log(JSON.stringify({worker,readOnly:true,flags,namespaceVerified:true,settingsDiagnostics:Object.fromEntries(keys.map(k=>[k,{present:Object.hasOwn(raw,k),type:Array.isArray(raw[k])?'array':raw[k]===null?'null':typeof raw[k]}])),compatibilityDate:typeof raw.compatibility_date==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(raw.compatibility_date)?raw.compatibility_date:'unknown',observabilityEnabled:typeof raw.observability?.enabled==='boolean'?raw.observability.enabled:'unknown'}));
+  throw error;
+ }
  return {worker,account,readOnly:true,flags,namespaceVerified:true,settings,expectedSettingsSha256:createHash('sha256').update(canonical(settings)).digest('hex'),secretBindingsPresent:Object.fromEntries(['STRIPE_RESTRICTED_KEY','STRIPE_WEBHOOK_SECRET','STRIPE_METER_WEBHOOK_SECRET','FINGERPRINT_SECRET','CREDENTIALS'].map(name=>[name,bindings.some(b=>b.name===name&&['secret_text','secret_key'].includes(b.type))])),targetBindings:Object.fromEntries(['STRIPE_ACCOUNT_ID','STRIPE_PRICE_ID','STRIPE_METER_ID','STRIPE_EVENT_NAME','TERMS_VERSION'].map(name=>{const b=bindings.find(b=>b.name===name);return [name,b?.type==='plain_text'?b.text:'unconfigured'];}))};
 }
 if(process.argv[1]?.endsWith('/prepare-worker-readonly.mjs')){
