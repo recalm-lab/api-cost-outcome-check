@@ -1,7 +1,11 @@
 export const STRIPE_VERSION = '2026-08-26.dahlia';
 export class BillingError extends Error { constructor(code='billing_unavailable',status=503){super(code);this.status=status;} }
-export function billingConfig(env) {
-  if(env.BILLING_ENABLED!=='true'||!['true','false'].includes(env.BILLING_VERIFIED)||(env.STRIPE_MODE==='live'&&env.BILLING_VERIFIED!=='true'))throw new BillingError();
+export const liveClosed=env=>env.STRIPE_MODE==='live'&&['API_ENABLED','BILLING_ENABLED','BILLING_VERIFIED'].every(k=>env[k]==='false');
+export function billingConfig(env,purpose='runtime') {
+  if(purpose!=='runtime'&&purpose!=='closed')throw new BillingError();
+  if(purpose==='closed'){
+    if(!liveClosed(env)||env.STRIPE_ACCOUNT_ID!=='acct_1TqptlRUIufKFmuE'||env.STRIPE_PRICE_ID!=='price_1UQKQ0RUIufKFmuEMN1jt6OU'||env.STRIPE_METER_ID!=='mtr_61VZYWJ5ULlQs4CCm41RUIufKFmuE4IC')throw new BillingError();
+  }else if(env.BILLING_ENABLED!=='true'||!['true','false'].includes(env.BILLING_VERIFIED)||(env.STRIPE_MODE==='live'&&env.BILLING_VERIFIED!=='true'))throw new BillingError();
   const mode=env.STRIPE_MODE;
   if(!['test','live'].includes(mode)||!new RegExp('^rk_'+mode+'_[A-Za-z0-9_]{16,}$').test(env.STRIPE_RESTRICTED_KEY||'')||!/^whsec_[A-Za-z0-9_]{16,}$/.test(env.STRIPE_WEBHOOK_SECRET||'')||!/^whsec_[A-Za-z0-9_]{16,}$/.test(env.STRIPE_METER_WEBHOOK_SECRET||'')||env.STRIPE_METER_WEBHOOK_SECRET===env.STRIPE_WEBHOOK_SECRET)throw new BillingError();
   if(!/^acct_[A-Za-z0-9]+$/.test(env.STRIPE_ACCOUNT_ID||'')||!/^price_[A-Za-z0-9]+$/.test(env.STRIPE_PRICE_ID||'')||!/^mtr_[A-Za-z0-9_]+$/.test(env.STRIPE_METER_ID||''))throw new BillingError();
@@ -15,8 +19,9 @@ export function billingConfig(env) {
 }
 // Small instance-based REST client; no SDK global keys or configurable external host.
 export class StripeClient {
-  constructor(env,fetcher){this.env=env;this.config=billingConfig(env);this.fetcher=fetcher||(env.STRIPE_MODE==='test'&&env.STRIPE_HTTP?env.STRIPE_HTTP.fetch.bind(env.STRIPE_HTTP):globalThis.fetch.bind(globalThis));}
+  constructor(env,fetcher,purpose='runtime'){this.env=env;this.readOnly=purpose==='closed';this.config=billingConfig(env,purpose);this.fetcher=fetcher||(env.STRIPE_MODE==='test'&&env.STRIPE_HTTP?env.STRIPE_HTTP.fetch.bind(env.STRIPE_HTTP):globalThis.fetch.bind(globalThis));}
   async request(method,path,params={},key){
+    if(this.readOnly&&(method!=='GET'||!['/v1/account','/v1/prices/'+this.config.priceId,'/v1/billing/meters/'+this.config.meterId].includes(path)))throw new BillingError('closed_read_only');
     if(!/^\/v1\/[A-Za-z0-9_/?=&%.[\]-]+$/.test(path))throw new BillingError();
     const encoded=new URLSearchParams(Object.entries(params).map(([k,v])=>[k,String(v)]));
     const headers={'authorization':'Bearer '+this.env.STRIPE_RESTRICTED_KEY,'stripe-version':STRIPE_VERSION};if(key)headers['idempotency-key']=key;
