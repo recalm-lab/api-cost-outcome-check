@@ -20,14 +20,6 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
-      - uses: actions/checkout@v6
-        with:
-          ref: 4c42a85efa3e4e31f00039e692a323f63128f2f7
-          path: reviewed-worker
-          persist-credentials: false
-      - name: Fresh build reviewed code without runtime credential
-        working-directory: reviewed-worker
-        run: node scripts/build-reviewed-worker.mjs 4c42a85efa3e4e31f00039e692a323f63128f2f7 "$RUNNER_TEMP/recalm-prepared-worker.js"
       - name: Read only exact Worker settings and binding metadata
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -39,3 +31,5 @@ jobs:
 # Read-only verification after HTTP 400; no retry of a mutation.
 
 # Read existing version exports only; no mutation in this diagnostic pass.
+
+# Owner reported signing Secret update at 15:19 JST. GET-only metadata and public health verification.
