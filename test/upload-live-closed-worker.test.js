@@ -16,11 +16,11 @@ function run(bindings=before,changed=null,after=null){
  globalThis.fetch=async(url,options={})=>{
   const method=options.method||'GET',path=new URL(url).pathname;calls.push({method,path});
   if(method==='GET'&&url.endsWith('/services/recalm-api-cost-check'))return Response.json({success:true,result:{id:'recalm-api-cost-check',default_environment:{environment:'production'}}});
-  if(method==='GET'&&url.endsWith('/bindings')){reads++;return Response.json({success:true,result:reads===1?\${JSON.stringify(bindings)}:reads===2?\${JSON.stringify(changed||bindings)}:\${JSON.stringify(after||bindings)}});}
+  if(method==='GET'&&url.endsWith('/bindings')){reads++;return Response.json({success:true,result:reads===1?${JSON.stringify(bindings)}:reads===2?${JSON.stringify(changed||bindings)}:${JSON.stringify(after||bindings)}});}
   if(method==='PUT'&&url.endsWith('/scripts/recalm-api-cost-check')){metadata=JSON.parse(await options.body.get('metadata').text());return Response.json({success:true,result:{}});}
   throw Error('unexpected_endpoint');
  };
- let error=null;try{await import(\${JSON.stringify(uploader)});}catch(e){error=e.message;}
+ let error=null;try{await import(${JSON.stringify(uploader)});}catch(e){error=e.message;}
  console.log(JSON.stringify({error,calls,metadata}));
  `;
  const result=spawnSync(process.execPath,['--input-type=module','-e',source],{encoding:'utf8',timeout:10000,env:{...process.env,CLOUDFLARE_API_TOKEN:'synthetic_live_closed_not_a_real_token'}});
