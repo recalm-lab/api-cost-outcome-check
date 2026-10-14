@@ -23,7 +23,7 @@ function catalog(overrides={}){
   const path=new URL(url).pathname;calls.push({method:options.method,path});assert.equal(options.method,'GET');
   let body;
   if(path==='/v1/account')body={id:account,charges_enabled:true,payouts_enabled:true};
-  else if(path==='/v1/prices/'+price)body={id:price,livemode:true,active:true,product:{active:true},currency:'jpy',unit_amount:1,tax_behavior:'inclusive',recurring:{interval:'month',interval_count:1,usage_type:'metered',meter}};
+  else if(path==='/v1/prices/'+price)body={id:price,livemode:true,active:true,product:{id:'recalm_api_cost_check_v1',active:true},billing_scheme:'per_unit',currency:'jpy',unit_amount:1,tax_behavior:'inclusive',recurring:{interval:'month',interval_count:1,usage_type:'metered',meter}};
   else if(path==='/v1/billing/meters/'+meter)body={id:meter,livemode:true,status:'active',event_name:env.STRIPE_EVENT_NAME,default_aggregation:{formula:'sum'},customer_mapping:{type:'by_id',event_payload_key:'stripe_customer_id'},value_settings:{event_payload_key:'value'},event_time_window:null};
   else throw Error('unexpected_read');
   return Response.json({...body,...(overrides[path]||{})});
@@ -60,7 +60,7 @@ test('closed rejects bad signature, expired time, mode, account, context, event 
  }finally{globalThis.fetch=original;}
 });
 test('closed rejects wrong target configuration and catalog, and partial flags never bypass runtime gate',async()=>{
- const original=globalThis.fetch,mock=catalog({'/v1/billing/meters/'+meter:{default_aggregation:{formula:'count'}}});globalThis.fetch=mock.fetch;
+ const original=globalThis.fetch,mock=catalog({['/v1/billing/meters/'+meter]:{default_aggregation:{formula:'count'}}});globalThis.fetch=mock.fetch;
  try{
   const response=await worker.fetch(signed(snapshot),env);assert.equal(response.status,503);assert.equal((await response.json()).error,'catalog_mismatch');
   const count=mock.calls.length;
