@@ -11,15 +11,18 @@ function emptyCashBalance(customer,customerId,livemode){
   return !!cash&&typeof cash==='object'&&!Array.isArray(cash)&&cash.object==='cash_balance'&&cash.customer===customerId&&cash.livemode===livemode&&(cash.customer_account===undefined||cash.customer_account===null)&&(cash.deleted===undefined||cash.deleted===false)&&Object.hasOwn(cash,'available')&&cash.available===null;
 }
 const emptyHistory=list=>!!list&&typeof list==='object'&&!Array.isArray(list)&&Array.isArray(list.data)&&list.data.length===0&&list.has_more===false;
+export async function verifyCatalog(client){
+    const config=client.config;
+    const account=await client.request('GET','/v1/account');if(account.id!==config.accountId||!account.charges_enabled||!account.payouts_enabled)throw new BillingError('account_mismatch');
+    const price=await client.request('GET','/v1/prices/'+config.priceId,{'expand[0]':'product'});
+    const meter=await client.request('GET','/v1/billing/meters/'+config.meterId);
+    if(price.id!==config.priceId||meter.id!==config.meterId||meter.livemode!==config.livemode||price.livemode!==config.livemode||!price.active||!price.product?.active||price.currency!=='jpy'||price.unit_amount!==1||price.tax_behavior!=='inclusive'||price.recurring?.interval!=='month'||price.recurring.interval_count!==1||price.recurring.usage_type!=='metered'||price.recurring.meter!==config.meterId||meter.status!=='active'||meter.event_name!==config.eventName||meter.default_aggregation?.formula!=='sum'||meter.customer_mapping?.event_payload_key!=='stripe_customer_id'||meter.customer_mapping?.type!=='by_id'||meter.value_settings?.event_payload_key!=='value'||meter.event_time_window)throw new BillingError('catalog_mismatch');
+  }
+
 export class BillingService {
   constructor(storage,client,customerId,clock=()=>Math.floor(Date.now()/1000)){this.s=storage;this.client=client;this.c=client.config;this.customerId=customerId;this.now=clock;}
   hold(reason='billing_hold'){const b=state(this.s);saveState(this.s,{...b,active:false,collectionHold:true,holdReason:reason,requiresManual:b.requiresManual||['meter_delivery_unknown','meter_timestamp_expired','waiver_delivery_unknown','invoice_reconciliation_unknown','meter_error'].includes(reason)});}
-  async verifyCatalog(){
-    const account=await this.client.request('GET','/v1/account');if(account.id!==this.c.accountId||!account.charges_enabled||!account.payouts_enabled)throw new BillingError('account_mismatch');
-    const price=await this.client.request('GET','/v1/prices/'+this.c.priceId,{'expand[0]':'product'});
-    const meter=await this.client.request('GET','/v1/billing/meters/'+this.c.meterId);
-    if(price.id!==this.c.priceId||meter.id!==this.c.meterId||meter.livemode!==this.c.livemode||price.livemode!==this.c.livemode||!price.active||!price.product?.active||price.currency!=='jpy'||price.unit_amount!==1||price.tax_behavior!=='inclusive'||price.recurring?.interval!=='month'||price.recurring.interval_count!==1||price.recurring.usage_type!=='metered'||price.recurring.meter!==this.c.meterId||meter.status!=='active'||meter.event_name!==this.c.eventName||meter.default_aggregation?.formula!=='sum'||meter.customer_mapping?.event_payload_key!=='stripe_customer_id'||meter.customer_mapping?.type!=='by_id'||meter.value_settings?.event_payload_key!=='value'||meter.event_time_window)throw new BillingError('catalog_mismatch');
-  }
+  async verifyCatalog(){await verifyCatalog(this.client);}
   async checkout(key,digest){
     if(state(this.s).requiresManual)throw new BillingError('manual_reconciliation_required');
     const id='checkout:'+key,old=one(this.s,'SELECT * FROM actions WHERE id=?',id);
