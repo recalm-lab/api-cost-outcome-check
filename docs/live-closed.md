@@ -66,3 +66,8 @@ PaymentIntents/Charges/Refunds Write、Product/Price Write、Webhook/Event desti
 ## observability未返却の限定修正
 
 公式settings GETでobservabilityはoptional、content-only PUTはconfig/metadataを変更しない。したがって未返却時は期待JSONにもこのfieldを追加せず、存在しない状態を前後比較する。falseへ補完しない。存在する場合だけ型・内容を検証し、absent→present / present→absent / 値変更は停止する。対応source SHAは `4c42a85efa3e4e31f00039e692a323f63128f2f7`。修正CIとfresh bundle検証が成功した。配置実行・読み戻し結果は別証跡で確認する。
+
+
+## 実配置の最新状態
+
+2026-10-14 06:01 UTCに、承認されたtest閉鎖配置と保存後のsettings / binding / namespace / HTTP SHA / closed確認が成功した。[実配置証跡](test-closed-deployment-evidence.md)を参照。この文書の以前の「実配置未実施」はtest閉鎖配置については解消し、live切替・Stripe通知先作成・本人Secret保存は親の別工程へ引き継ぐ。
