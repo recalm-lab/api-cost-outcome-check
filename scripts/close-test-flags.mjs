@@ -9,7 +9,16 @@ export async function closeTestFlags(fetcher=fetch){
  async function cf(path,method='GET',body){
   const r=await fetcher(root+path,{method,body,headers:{authorization:'Bearer '+process.env.CLOUDFLARE_API_TOKEN},redirect:'error',signal:AbortSignal.timeout(15000)});
   let b;try{b=await r.json();}catch{throw Error('worker_api_failed');}
-  if(!r.ok||b.success!==true)throw Error('worker_api_failed_'+r.status);return b.result;
+  if(!r.ok||b.success!==true){
+   const safeMessage=value=>{
+    let text=typeof value==='string'?value:'';
+    if(/[{}\\[\\]<>]/.test(text))return 'structured_error_message_omitted';
+    text=text.split(process.env.CLOUDFLARE_API_TOKEN).join('[redacted]').replace(/(?:rk|sk)_(?:test|live)_[A-Za-z0-9_]+|whsec_[A-Za-z0-9_]+|Bearer\\s+\\S+/g,'[redacted]');
+    return text.slice(0,400);
+   };
+   console.log(JSON.stringify({operation:method+' '+path,httpStatus:r.status,errors:(b.errors||[]).slice(0,5).map(e=>({code:Number.isSafeInteger(e.code)?e.code:null,message:safeMessage(e.message)}))}));
+   throw Error('worker_api_failed_'+r.status);
+  }return b.result;
  }
  function inspect(list){
   if(!Array.isArray(list)||new Set(list.map(b=>b.name)).size!==list.length||list.some(b=>!['plain_text','json','secret_text','secret_key','durable_object_namespace'].includes(b.type)))throw Error('unreviewed_bindings');
