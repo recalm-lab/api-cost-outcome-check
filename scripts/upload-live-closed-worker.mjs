@@ -21,7 +21,7 @@ export function retainedSettings(settings){
  const result=Object.fromEntries(preserve.filter(k=>Object.hasOwn(settings,k)).map(k=>[k,settings[k]]));
  if(result.exports){
   if(Object.keys(result.exports).length!==1||result.exports.AccountMeter?.type!=='durable-object'||result.exports.AccountMeter.storage!=='sqlite'||Object.keys(result.exports.AccountMeter).some(k=>!['type','storage','state'].includes(k)))throw Error('unreviewed_remote_exports');
-  result.exports={AccountMeter:{type:'durable-object',storage:'sqlite'}};
+  if(result.exports.AccountMeter.state!==undefined&&result.exports.AccountMeter.state!=='created')throw Error('unreviewed_remote_exports');
  }
  return result;
 }
@@ -61,12 +61,13 @@ export async function uploadClosed({sha,expected,mode='live',fetcher=fetch}){
  async function snapshot(){return {bindings:inspect(await cf(bindingPath),mode),settings:retainedSettings(await cf(settingsPath))};}
  const before=await snapshot();
  if(canonical(before.settings)!==canonical(expected))throw Error('expected_remote_settings_mismatch');
- const metadata={...before.settings,main_module:'worker.js',keep_assets:true,keep_bindings:known,bindings:[]};
+ // Official content replacement explicitly leaves configuration and metadata untouched.
+ const metadata={main_module:'worker.js'};
  const body=new FormData();body.set('metadata',new Blob([JSON.stringify(metadata)],{type:'application/json'}));
  body.set('worker.js',new Blob([built.bundle],{type:'application/javascript+module'}),'worker.js');
  if(canonical(await snapshot())!==canonical(before))throw Error('preflight_remote_changed');
  assertCheckout(sha);
- await cf('/scripts/'+worker,'PUT',body);
+ await cf('/scripts/'+worker+'/content','PUT',body);
  if(canonical(await snapshot())!==canonical(before))throw Error('remote_retention_failed');
  await verifyClosedHttp(mode,fetcher,sha);
  console.log(JSON.stringify({worker,uploaded:true,stripeMode:mode,closed:true,settingsRetained:true,bindingsRetained:true,namespaceRetained:true,closedHttpVerified:true,...built.manifest}));
