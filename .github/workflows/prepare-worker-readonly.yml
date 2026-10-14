@@ -37,3 +37,5 @@ jobs:
 # Read-only diagnostic pass identifies absent settings; it never synthesizes defaults.
 
 # Read-only verification after HTTP 400; no retry of a mutation.
+
+# Read existing version exports only; no mutation in this diagnostic pass.
