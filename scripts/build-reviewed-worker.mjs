@@ -18,17 +18,17 @@ export function buildReviewedBundle(sha){
  for(const path of paths){
   let source;try{source=execFileSync('git',['show',sha+':'+path],{encoding:'utf8',maxBuffer:2*1024*1024});}catch{throw Error('committed_build_input_missing');}
   inputs[path]=createHash('sha256').update(source).digest('hex');
-  const named=[...source.matchAll(/export\s+(?:async\s+)?(?:function|class|const|let)\s+([A-Za-z_$][\w$]*)/g)].map(m=>m[1]);
-  source=source.replace(/import\s+([^;]+?)\s+from\s+['"]([^'"]+)['"];?/g,(_,clause,target)=>{
+  const named=[...source.matchAll(/^export\s+(?:async\s+)?(?:function|class|const|let)\s+([A-Za-z_$][\w$]*)/gm)].map(m=>m[1]);
+  source=source.replace(/^import\s+([^;]+?)\s+from\s+['"]([^'"]+)['"];?/gm,(_,clause,target)=>{
    const dependency=target==='cloudflare:workers'?'__external':names[posix.normalize(posix.join(posix.dirname(path),target))];
    if(!dependency||target==='cloudflare:workers'&&clause.trim()!=='{ DurableObject }')throw Error('unreviewed_build_import');
    if(target==='cloudflare:workers')return 'const DurableObject=__DurableObject;';
    clause=clause.trim();if(clause.startsWith('{'))return 'const '+clause+'='+dependency+';';
    const split=clause.indexOf(',');return 'const '+(split<0?clause:clause.slice(0,split))+ '='+dependency+'.default;'+(split<0?'':'const '+clause.slice(split+1)+'='+dependency+';');
   });
-  const hasDefault=/export\s+default\s+/.test(source);
-  source=source.replace(/export\s+default\s+/,'const __default=').replace(/export\s+(?=(?:async\s+)?(?:function|class|const|let)\s)/g,'');
-  source=source.replace(/export\s*\{([^}]+)\};?/g,(_,list)=>{for(const name of list.split(',').map(x=>x.trim())){if(!/^[A-Za-z_$][\w$]*$/.test(name))throw Error('unreviewed_build_export');named.push(name);}return '';});
+  const hasDefault=/^export\s+default\s+/m.test(source);
+  source=source.replace(/^export\s+default\s+/m,'const __default=').replace(/^export\s+(?=(?:async\s+)?(?:function|class|const|let)\s)/gm,'');
+  source=source.replace(/^export\s*\{([^}]+)\};?/gm,(_,list)=>{for(const name of list.split(',').map(x=>x.trim())){if(!/^[A-Za-z_$][\w$]*$/.test(name))throw Error('unreviewed_build_export');named.push(name);}return '';});
   chunks.push('const '+names[path]+'=(()=>{\n'+source+'\nreturn {'+[...new Set(named)].join(',')+(hasDefault?(named.length?',':'')+'default:__default':'')+'};\n})();\n');
  }
  chunks.push('export const AccountMeter=__m6.AccountMeter;\nconst __api=__m6.default;\nexport default {async fetch(request,env,ctx){const response=await __api.fetch(request,env,ctx);const headers=new Headers(response.headers);headers.set(\'x-recalm-source-commit\',\''+sha+'\');return new Response(response.body,{status:response.status,statusText:response.statusText,headers});}};\n');
