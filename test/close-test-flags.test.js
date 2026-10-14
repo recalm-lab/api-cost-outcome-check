@@ -10,12 +10,13 @@ test('test flag close changes only three values, inherits opaque bindings and re
    const path=new URL(url).pathname;calls.push(options.method);let result;
    if(options.method==='PATCH'){
     assert.ok(path.endsWith('/scripts/recalm-api-cost-check/settings'));
-    const payload=JSON.parse(await options.body.get('settings').text());assert.deepEqual(Object.keys(payload),['bindings']);
+    const payload=JSON.parse(await options.body.get('settings').text());assert.deepEqual(Object.keys(payload),['bindings','exports']);assert.deepEqual(payload.exports,{AccountMeter:{type:'durable-object',storage:'sqlite'}});
     for(const b of payload.bindings)assert.deepEqual(b,['API_ENABLED','BILLING_ENABLED','BILLING_VERIFIED'].includes(b.name)?{name:b.name,type:'plain_text',text:'false'}:{name:b.name,type:'inherit'});
     patched=true;result={};
    }else if(path.endsWith('/bindings'))result=before.map(b=>patched&&['API_ENABLED','BILLING_ENABLED','BILLING_VERIFIED'].includes(b.name)?{...b,text:'false'}:b);
    else if(path.endsWith('/settings'))result=settings;
    else if(path.endsWith('/deployments'))result={deployments:[{versions:[{percentage:100,version_id:'version_current'}]}]};
+   else if(path.includes('/versions/'))result={resources:{script_runtime:{exports:{AccountMeter:{type:'durable-object',storage:'sqlite'}}}}};
    else if(path.endsWith('/versions'))result={items:[{id:proven?'version_current':'version_other'}]};
    else result={id:'recalm-api-cost-check',default_environment:{environment:'production'}};
    return Response.json({success:true,result});
