@@ -10,14 +10,14 @@ export function canonical(value){return JSON.stringify(sort(value));}
 function sort(v){return Array.isArray(v)?v.map(sort):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,sort(v[k])])):v;}
 export function retainedSettings(settings){
  if(!settings||Array.isArray(settings)||typeof settings!=='object'||Object.keys(settings).some(k=>!preserve.includes(k)&&!readOnly.includes(k)))throw Error('unknown_remote_settings');
- for(const key of ['compatibility_date','compatibility_flags','observability','logpush','tags','tail_consumers'])if(!Object.hasOwn(settings,key))throw Error('remote_settings_incomplete');
- if(!/^\d{4}-\d{2}-\d{2}$/.test(settings.compatibility_date)||!Array.isArray(settings.compatibility_flags)||settings.compatibility_flags.some(x=>typeof x!=='string')||typeof settings.observability?.enabled!=='boolean'||typeof settings.logpush!=='boolean'||!Array.isArray(settings.tags)||!Array.isArray(settings.tail_consumers))throw Error('remote_settings_incomplete');
+ for(const key of ['compatibility_date','compatibility_flags','logpush','tags','tail_consumers'])if(!Object.hasOwn(settings,key))throw Error('remote_settings_incomplete');
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(settings.compatibility_date)||!Array.isArray(settings.compatibility_flags)||settings.compatibility_flags.some(x=>typeof x!=='string')||(Object.hasOwn(settings,'observability')&&typeof settings.observability?.enabled!=='boolean')||typeof settings.logpush!=='boolean'||!Array.isArray(settings.tags)||!Array.isArray(settings.tail_consumers))throw Error('remote_settings_incomplete');
  const allowed=(v,keys)=>v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).every(k=>keys.includes(k));
  const obs=settings.observability;
- if(!allowed(obs,['enabled','head_sampling_rate','issues','logs','traces','redact_query_string'])||obs.issues&&!allowed(obs.issues,['enabled'])||obs.logs&&!allowed(obs.logs,['enabled','invocation_logs','destinations','head_sampling_rate','persist'])||obs.traces&&!allowed(obs.traces,['enabled','destinations','head_sampling_rate','persist','propagation_policy']))throw Error('unknown_remote_settings');
+ if(Object.hasOwn(settings,'observability')&&(!allowed(obs,['enabled','head_sampling_rate','issues','logs','traces','redact_query_string'])||obs.issues&&!allowed(obs.issues,['enabled'])||obs.logs&&!allowed(obs.logs,['enabled','invocation_logs','destinations','head_sampling_rate','persist'])||obs.traces&&!allowed(obs.traces,['enabled','destinations','head_sampling_rate','persist','propagation_policy'])))throw Error('unknown_remote_settings');
  for(const [key,keys]of Object.entries({placement:['mode'],limits:['cpu_ms','subrequests'],cache_options:['enabled','cross_version_cache']}))if(Object.hasOwn(settings,key)&&!allowed(settings[key],keys))throw Error('unknown_remote_settings');
  if(settings.tail_consumers.some(v=>!allowed(v,['service','environment','namespace']))||settings.tags.some(v=>typeof v!=='string'))throw Error('unknown_remote_settings');
- if(obs.traces?.propagation_policy===null)throw Error('unpreservable_remote_settings');
+ if(obs?.traces?.propagation_policy===null)throw Error('unpreservable_remote_settings');
  const result=Object.fromEntries(preserve.filter(k=>Object.hasOwn(settings,k)).map(k=>[k,settings[k]]));
  if(result.exports){
   if(Object.keys(result.exports).length!==1||result.exports.AccountMeter?.type!=='durable-object'||result.exports.AccountMeter.storage!=='sqlite'||Object.keys(result.exports.AccountMeter).some(k=>!['type','storage','state'].includes(k)))throw Error('unreviewed_remote_exports');
