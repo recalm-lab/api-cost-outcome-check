@@ -1,0 +1,9 @@
+{
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": [],
+  "logpush": false,
+  "tags": [],
+  "tail_consumers": [],
+  "placement": {},
+  "usage_model": "standard"
+}
