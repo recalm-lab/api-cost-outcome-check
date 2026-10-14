@@ -78,3 +78,8 @@ sandboxの専用thin Event destinationを `/v1/stripe/meter-webhook` に追加�
 missing/reused meter secretでは全課金経路をfail closedにする。現在公開済みSHA33c2588にはこの修正が入っていないため、販売停止flagを維持して修正版の承認済みdeploy後に2宛先を登録する。
 
 manual hold後のinvoice.updated再送でもcancel後回収再開のauto_advance=trueを送らない。支払済み証跡は台帳へ反映するがmanual holdを解除しない。Checkout/subscription再通知も利用を有効化せず、billing statusのpaymentUrlはnullとする。自動finalize/outbox/cancel精算を含めmanual holdは自動解除しない。
+
+
+## 2026-10-14 閉鎖コード実装の更新
+
+[live-closed手順](live-closed.md)に既存live-closed Workerへのコード専用uploader、署名付き通知での読み取り専用catalog確認、API別の最小権限、現在の配置/設定/規約の残件をまとめた。旧記述の「3flag=falseでは署名確認できない」はこのブランチでは解消した。実配置・Secret保存・本番Webhook作成は未実施で、現Workerのtest→live切替はuploaderの範囲外。既存sandbox E2Eの完了証跡はresumption-statusを参照し、過去の未実行記述を現在の結論に使わない。
