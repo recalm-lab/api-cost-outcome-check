@@ -80,7 +80,7 @@ export default {
           if(!thin&&!Object.values(config.accounts).some(c=>c.customerId===objectId(event.data.object.customer)))throw new BillingError('customer_mismatch',400);
           await verifyCatalog(new StripeClient(env,undefined,'closed'));
           // Do not acknowledge delivery, dispatch to a ledger, or persist anything while closed.
-          return json({error:'billing_closed',verification:'signature_and_catalog_verified',received:false},503);
+          return json({error:'billing_closed',verification:'signature_and_configured_catalog_only',eventProductVerified:false,received:false},503);
         }
         const customer=thin?null:objectId(event.data.object.customer);
         const matched=thin?Object.keys(config.accounts):Object.keys(config.accounts).filter(a=>config.accounts[a].customerId===customer);
