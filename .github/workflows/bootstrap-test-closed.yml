@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: 1f291065fb0c42e8ec82c006f570d5c2c3b3575f
+          ref: 3bcdd906999fb517e348847abbd3f3cb3542555d
           persist-credentials: false
       - uses: actions/setup-node@v6
         with:
@@ -38,10 +38,10 @@ jobs:
       - name: Close only three test flags and verify all other bindings and settings
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: node scripts/close-test-flags.mjs
+        run: node scripts/close-test-flags.mjs "$RUNNER_TEMP/recalm-closed-expected-settings.json"
       - name: Content-only test closed upload with settings binding and HTTP readback
         working-directory: reviewed-worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: node scripts/upload-test-closed-worker.mjs 4c42a85efa3e4e31f00039e692a323f63128f2f7 ../deploy/test-closed-expected-settings.json
+        run: node scripts/upload-test-closed-worker.mjs 4c42a85efa3e4e31f00039e692a323f63128f2f7 "$RUNNER_TEMP/recalm-closed-expected-settings.json"
       # No mode transition, live activation, Stripe calls, Secret values, or other Worker targets.
