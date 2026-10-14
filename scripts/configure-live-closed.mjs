@@ -9,7 +9,8 @@ const changes={STRIPE_MODE:'live',STRIPE_ACCOUNT_ID:'acct_1TqptlRUIufKFmuE',STRI
 const oldValues={STRIPE_MODE:'test',STRIPE_ACCOUNT_ID:'acct_1TqptzD1AvIZkMfK',STRIPE_PRICE_ID:'price_1UPwToD1AvIZkMfK9yFCs9xN',STRIPE_METER_ID:'mtr_test_61VZKPnRudfS37Kdz41D1AvIZkMfK1J2'};
 const settingsExpected={compatibility_date:'2026-10-01',compatibility_flags:[],logpush:false,tags:[],tail_consumers:[],placement:{},usage_model:'standard'};
 const exportsExpected={AccountMeter:{type:'durable-object',storage:'sqlite'}};
-export async function configureLiveClosed(sha,fetcher=fetch){
+export async function configureLiveClosed(sha,fetcher=fetch,readOnly=false){
+ if(typeof readOnly!=='boolean')throw Error('invalid_operation');
  if(!/^[0-9a-f]{40}$/.test(sha||''))throw Error('reviewed_source_required');
  if(!process.env.CLOUDFLARE_API_TOKEN)throw Error('existing_credential_missing');
  async function cf(path,method='GET',body){
@@ -41,13 +42,14 @@ export async function configureLiveClosed(sha,fetcher=fetch){
   const r=await fetcher(base+'/health',{method:'GET',redirect:'error',signal:AbortSignal.timeout(10000)});const h=await r.json();
   if(r.status!==200||r.headers.get('x-recalm-source-commit')!==sha||h.stripeMode!==mode||['apiEnabled','billingEnabled','billingVerified','saleActive'].some(n=>h[n]!==false))throw Error('closed_http_mismatch');
  }
- const before=await snapshot('test');if(canonical(before.settings)!==canonical(settingsExpected))throw Error('expected_settings_mismatch');
- await health('test');
+ const before=await snapshot(readOnly?'live':'test');if(canonical(before.settings)!==canonical(settingsExpected))throw Error('expected_settings_mismatch');
+ await health(readOnly?'live':'test');
  const deployments=await cf('/scripts/'+worker+'/deployments'),versions=await cf('/scripts/'+worker+'/versions');
  const active=deployments.deployments?.[0]?.versions,latest=versions.items?.[0]?.id;
  if(!Array.isArray(active)||active.length!==1||active[0].percentage!==100||!latest||active[0].version_id!==latest)throw Error('inherit_version_not_proven');
  const declaration=(await cf('/scripts/'+worker+'/versions/'+latest)).resources?.script_runtime?.exports;
  if(canonical(declaration)!==canonical(exportsExpected))throw Error('existing_exports_not_proven');
+ if(readOnly)return {worker,sourceCommit:sha,mode:'live',closed:true,saleActive:false,customerMappingEmpty:true,secretBindingsPresent:true,namespaceVerified:true,settingsVerified:true,exportsVerified:true,readOnly:true};
  if(canonical(await snapshot('test'))!==canonical(before))throw Error('preflight_changed');
  const form=new FormData();form.set('settings',new Blob([JSON.stringify({bindings:before.bindings.map(b=>Object.hasOwn(changes,b.name)?{name:b.name,type:'plain_text',text:changes[b.name]}:{name:b.name,type:'inherit'}),exports:declaration})],{type:'application/json'}));
  await cf(settingsPath,'PATCH',form);
@@ -59,5 +61,8 @@ export async function configureLiveClosed(sha,fetcher=fetch){
  return {worker,sourceCommit:sha,mode:'live',closed:true,saleActive:false,customerMappingEmpty:true,secretBindingsRetained:true,namespaceRetained:true,settingsRetained:true};
 }
 if(process.argv[1]&&fileURLToPath(import.meta.url)===process.argv[1]){
- try{console.log(JSON.stringify(await configureLiveClosed(process.argv[2])));}catch{console.log(JSON.stringify({error:'live_closed_configuration_failed',closedActivationAttempted:false}));process.exitCode=1;}
+ try{console.log(JSON.stringify(await configureLiveClosed(process.argv[2],fetch,process.argv[3]==='--verify')));}catch(e){
+  const known=new Set(['invalid_operation','reviewed_source_required','existing_credential_missing','worker_api_failed','unreviewed_bindings','nonsecret_setting_required','closed_flags_required','target_configuration_mismatch','sandbox_mapping_mismatch','secret_binding_missing','namespace_mismatch','target_mismatch','closed_http_mismatch','expected_settings_mismatch','inherit_version_not_proven','existing_exports_not_proven','preflight_changed','settings_retention_failed','exports_retention_failed']);
+  console.log(JSON.stringify({error:known.has(e.message)?e.message:'live_closed_configuration_failed',readOnly:process.argv[3]==='--verify',activationFlagsNeverEnabled:true}));process.exitCode=1;
+ }
 }

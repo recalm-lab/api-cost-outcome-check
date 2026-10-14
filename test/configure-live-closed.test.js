@@ -41,3 +41,12 @@ test('enabled flags, unexpected test configuration, source, namespace, version, 
   }
  }finally{if(old===undefined)delete process.env.CLOUDFLARE_API_TOKEN;else process.env.CLOUDFLARE_API_TOKEN=old;}
 });
+
+test('verification of already configured live closed Worker uses GET only and rejects a live customer mapping',async()=>{
+ const old=process.env.CLOUDFLARE_API_TOKEN;process.env.CLOUDFLARE_API_TOKEN='synthetic_config_test';
+ const vars={STRIPE_MODE:'live',STRIPE_ACCOUNT_ID:'acct_1TqptlRUIufKFmuE',STRIPE_PRICE_ID:'price_1UQKQ0RUIufKFmuEMN1jt6OU',STRIPE_METER_ID:'mtr_61VZYWJ5ULlQs4CCm41RUIufKFmuE4IC',BILLING_ACCOUNTS:'{}'};
+ try{
+  const f=fake({vars});const result=await configureLiveClosed(sha,f.fetch,true);assert.equal(result.readOnly,true);assert.ok(f.calls.every(c=>c.method==='GET'));assert.equal(f.payload,undefined);
+  const bad=fake({vars:{...vars,BILLING_ACCOUNTS:JSON.stringify({live:{customerId:'cus_live'}})}});await assert.rejects(configureLiveClosed(sha,bad.fetch,true));assert.ok(bad.calls.every(c=>c.method==='GET'));
+ }finally{if(old===undefined)delete process.env.CLOUDFLARE_API_TOKEN;else process.env.CLOUDFLARE_API_TOKEN=old;}
+});
