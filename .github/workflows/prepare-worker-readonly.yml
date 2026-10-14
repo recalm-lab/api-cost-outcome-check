@@ -35,3 +35,5 @@ jobs:
       # No PUT, flag/Secret operations, deployment, lifecycle calls, or external artifacts.
 
 # Read-only diagnostic pass identifies absent settings; it never synthesizes defaults.
+
+# Read-only verification after HTTP 400; no retry of a mutation.
