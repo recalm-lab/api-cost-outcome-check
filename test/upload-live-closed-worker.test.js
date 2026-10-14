@@ -24,7 +24,7 @@ async function run({bindings=baseBindings,settings=baseSettings,expected=baseSet
   if(method==='GET'&&path.endsWith('/services/recalm-api-cost-check'))return Response.json({success:true,result:{id:'recalm-api-cost-check',default_environment:{environment:'production'}}});
   if(method==='GET'&&path.endsWith('/bindings')){reads++;return Response.json({success:true,result:reads===1?bindings:reads===2?(changed?.bindings||bindings):(after?.bindings||bindings)});}
   if(method==='GET'&&path.endsWith('/settings'))return Response.json({success:true,result:reads===1?settings:reads===2?(changed?.settings||settings):(after?.settings||settings)});
-  if(method==='PUT'&&path.endsWith('/scripts/recalm-api-cost-check')){metadata=JSON.parse(await options.body.get('metadata').text());bundle=await options.body.get('worker.js').text();return Response.json({success:true,result:{}});}
+  if(method==='PUT'&&path.endsWith('/scripts/recalm-api-cost-check/content')){metadata=JSON.parse(await options.body.get('metadata').text());bundle=await options.body.get('worker.js').text();return Response.json({success:true,result:{}});}
   throw Error('unexpected_endpoint');
  };
  const old=process.env.CLOUDFLARE_API_TOKEN,log=console.log;process.env.CLOUDFLARE_API_TOKEN='synthetic_not_a_real_token';console.log=()=>{};
@@ -34,9 +34,9 @@ async function run({bindings=baseBindings,settings=baseSettings,expected=baseSet
 test('fresh reviewed bundle SHA matches PUT, exact remote settings survive and deployed closed HTTP carries SHA',async()=>{
  const output=await run();assert.equal(output.error,null);
  assert.equal(output.bundle,buildReviewedBundle(sha).bundle);
- assert.deepEqual(Object.fromEntries(Object.keys(baseSettings).map(k=>[k,output.metadata[k]])),baseSettings);
- assert.deepEqual(output.metadata.bindings,[]);assert.equal(output.metadata.keep_assets,true);
- assert.equal(output.calls.filter(c=>c.method==='PUT').length,1);
+ assert.deepEqual(output.metadata,{main_module:'worker.js'});
+
+ assert.equal(output.calls.filter(c=>c.method==='PUT').length,1);assert.ok(output.calls.filter(c=>c.method==='PUT').every(c=>c.path.endsWith('/scripts/recalm-api-cost-check/content')));
  assert.deepEqual(output.calls.slice(-3).map(c=>c.path),['/health','/v1/stripe/webhook','/v1/stripe/meter-webhook']);
  const built=buildReviewedBundle(sha);assert.equal(built.manifest.sourceCommit,sha);assert.equal(built.manifest.bundleSha256,createHash('sha256').update(output.bundle).digest('hex'));
  for(const key of ['migrations','routes','route','vars'])assert.ok(!Object.hasOwn(output.metadata,key));
