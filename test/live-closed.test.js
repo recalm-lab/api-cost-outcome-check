@@ -34,7 +34,7 @@ test('closed live signed snapshot and thin verify only GET catalog, never acknow
  try{
   for(const [event,path,secret]of [[snapshot,'/v1/stripe/webhook',webhookSecret],[snapshot,'/v1/stripe/webhook',webhookSecret],[thin,'/v1/stripe/meter-webhook',env.STRIPE_METER_WEBHOOK_SECRET],[{...thin,type:'v1.billing.meter.no_meter_found',related_object:undefined},'/v1/stripe/meter-webhook',env.STRIPE_METER_WEBHOOK_SECRET]]){
    const response=await worker.fetch(signed(event,path,secret),env);assert.equal(response.status,503);const body=await response.text();
-   assert.deepEqual(JSON.parse(body),{error:'billing_closed',verification:'signature_and_catalog_verified',received:false});
+   assert.deepEqual(JSON.parse(body),{error:'billing_closed',verification:'signature_and_configured_catalog_only',eventProductVerified:false,received:false});
    for(const secretValue of [env.STRIPE_RESTRICTED_KEY,webhookSecret,env.STRIPE_METER_WEBHOOK_SECRET])assert.ok(!body.includes(secretValue));
   }
   assert.equal(mock.calls.length,12);assert.ok(mock.calls.every(c=>c.method==='GET'));
@@ -72,5 +72,15 @@ test('closed rejects wrong target configuration and catalog, and partial flags n
   const client=new StripeClient(env,mock.fetch,'closed');
   for(const [method,path]of [['POST','/v1/billing/meter_events'],['GET','/v1/customers/cus_test'],['DELETE','/v1/subscriptions/sub_test']])await assert.rejects(client.request(method,path),/closed_read_only/);
   assert.equal(mock.calls.length,count);
+ }finally{globalThis.fetch=original;}
+});
+
+test('same-customer other-product notifications never reach billing and never claim product verification',async()=>{
+ const original=globalThis.fetch,mock=catalog();globalThis.fetch=mock.fetch;
+ try{
+  const event={...snapshot,data:{object:{...snapshot.data.object,lines:{data:[{pricing:{price_details:{price:'price_unrelated'}}}]}}}};
+  const response=await worker.fetch(signed(event),env);assert.equal(response.status,503);
+  const body=await response.json();assert.equal(body.received,false);assert.equal(body.eventProductVerified,false);assert.equal(body.verification,'signature_and_configured_catalog_only');
+  assert.ok(mock.calls.every(c=>c.method==='GET'));assert.equal(mock.calls.length,3);
  }finally{globalThis.fetch=original;}
 });
