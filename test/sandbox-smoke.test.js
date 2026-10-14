@@ -4,12 +4,13 @@ import {spawnSync} from 'node:child_process';
 import {mkdtemp,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
 const closed={stripeMode:'test',saleActive:false,apiEnabled:false,billingEnabled:false,billingVerified:false};
 async function exercise(fn){
  const dir=await mkdtemp(join(tmpdir(),'recalm-readiness-'));
  const preload=join(dir,'mock-fetch.mjs');
  await writeFile(preload,`globalThis.fetch=async(url,options)=>{if(url==='https://recalm-api-cost-check.rough-sound-e8d7.workers.dev/v1/stripe/meter-webhook'&&options.method==='POST'&&options.body==='{}')return Response.json({error:'billing_unavailable'},{status:503});if(options.method&&options.method!=='GET')throw new Error('unexpected_write');if(url==='https://recalm-api-cost-check.rough-sound-e8d7.workers.dev/health')return Response.json(JSON.parse(process.env.READINESS_TEST_HEALTH));if(url==='https://recalm-api-cost-check.rough-sound-e8d7.workers.dev/openapi.json')return Response.json({openapi:'3.1.0',paths:{'/v1/stripe/meter-webhook':{}}});throw new Error('unexpected_network');};`);
- const run=health=>{const result=spawnSync(process.execPath,['--import',preload,resolve('scripts/sandbox-smoke.mjs'),'readiness'],{encoding:'utf8',env:{...process.env,READINESS_TEST_HEALTH:JSON.stringify(health)}});assert.equal(result.stderr,'');return {status:result.status,report:JSON.parse(result.stdout.trim())};};
+ const run=health=>{const result=spawnSync(process.execPath,['--import',pathToFileURL(preload).href,resolve('scripts/sandbox-smoke.mjs'),'readiness'],{encoding:'utf8',env:{...process.env,READINESS_TEST_HEALTH:JSON.stringify(health)}});assert.equal(result.stderr,'');return {status:result.status,report:JSON.parse(result.stdout.trim())};};
  try{await fn(run);}finally{await rm(dir,{recursive:true,force:true});}
 }
 test('post-deploy readiness passes only closed boolean flags and reports all three false',()=>exercise(run=>{

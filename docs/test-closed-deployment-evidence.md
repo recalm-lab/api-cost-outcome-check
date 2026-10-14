@@ -1,5 +1,7 @@
 # Test closed deployment evidence — 2026-10-14
 
+最新情報: 本人は2つの署名Secretを本番宛先の値へ上書き済みと報告した。存在/Secret型とtest・3flag=falseは再確認済み、値一致と実署名は未検証。本番RAKは未作成。[2026-10-14再開確認](launch-readiness-2026-10-14.md)が、下記の過去の「保存待ち」を更新する。
+
 対象は既存 Cloudflare account `9a2e48df6882d20c2d1c4398184215a9`、Worker `recalm-api-cost-check` のみ。
 
 [実行run 38519747808](https://github.com/recalm-lab/api-cost-outcome-check/actions/runs/38519747808)、job `115706485524` は成功。UTC 06:00:59に3flag閉鎖と保持比較、06:01:03にcontent-only uploadと保存後のHTTP確認が完了した。

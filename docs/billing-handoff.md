@@ -1,5 +1,7 @@
 # 最小Billing Meters連携 — 実装済み、実売は未有効
 
+最新のキー作成案とDashboardで未確定のsubresource権限対応は [2026-10-14再開確認](launch-readiness-2026-10-14.md#キー作成前の承認案)を参照。閉鎖用はRead4項目だけとし、以下の機能別scopeを、そのまま実証済みRAK権限名と扱わない。
+
 親の指定によりBilling Meters + Stripe-hosted Checkoutを採用。Metronomeの新契約、price/product/payment-linkの重複作成は行わない。runtimeは最小のinstance-based REST wrapperで公式 `api.stripe.com` のv1へ接続し、Stripe-Versionはskillで指定された `2026-08-26.dahlia` に固定。SDK依存・独自カードフォーム・1円個別決済はない。
 
 2026-10-13、接続済みStripeの**sandboxだけread**で以下のpriceを再確認した。価格はactive、productも最新readではactive=true。meter自体のobject readと本番設定は親担当の管理で、こちらからwriteはしていない。
