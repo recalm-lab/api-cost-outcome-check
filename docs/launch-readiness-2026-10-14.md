@@ -85,6 +85,18 @@ HTTP方法に必要な操作は確定したが、上記subresourceのRAK group�
 
 販売表示、3flagの有効化、有料契約は、残件確認後に本人へ最終承認を求める。
 
+## 今回の開発検証
+
+変更は `.gitattributes` のLF指定、sandbox-smokeテストのpreloadパスを `pathToFileURL` へ変換するWindows互換修正、関連文書だけ。課金/照合runtime・料金・LLM呼出しは変更していない。
+
+コミット `f98ccc5` のclean checkoutで `node --test --test-concurrency=1 test/*.test.js` は82/82 pass、0 fail。最大入力のworkerd回帰、署名・重複・上限・閉鎖分岐、正本SHAからの単一bundle compileを含む。`npm run build:demo`、生成publicとの一致、変更JSの `node --check`、`git diff --check` も成功。JavaScriptプロジェクトで独立した型検査設定はないため、型検査済みとは表現しない。
+
+初回のsandbox内localhost EACCES、自動CRLFによるCSP/生成物不一致と、Windows絶対パスのESM preload不備を切り分けた。LFの別checkoutとlocalhostを使える検証実行で確認した。既存checkoutの全ファイル上書きは自動承認レビューが未コミット作業消失の危険として拒否したため行わず、元checkoutを保持した。Windowsの既定並列実行では一部startup timeoutが出たが、対象の直列再確認と上記全件直列実行では成功した。安全ゲートやassertionは緩めていない。
+
+Node最大入力microbenchmarkは16KiB/40件/40段を実行できたが、このWindowsでprocess.cpuUsageが0/16msへ量子化され、Worker性能の判断に使えない。実Worker/DOのCPU測定は未完のまま。
+
+`npm audit` は既存devDependenciesのminiflareと推移依存sharp/undiciにhigh 3件を報告。今回の修正で入れた依存ではなく、runtime bundleはこれらをimportしない。開発環境依存の対応を残件として記録し、提示された過去版へのforce変更はしていない。実運用の検証済み状態と混同しない。
+
 ## UI読み取りの秘密値事故
 
 本人が開いていたmeter errorsページで署名Secretが表示状態だったため、初回getTabの自動AX結果に値が含まれた。本人へ報告済み。値を文書・Git・ファイルへ記録せず、検証に利用しない。以後はread-only DOMから非秘密項目だけを返し、通知先の画面をスクリーンショットへ保存しない。
