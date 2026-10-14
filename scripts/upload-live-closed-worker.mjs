@@ -12,6 +12,12 @@ export function retainedSettings(settings){
  if(!settings||Array.isArray(settings)||typeof settings!=='object'||Object.keys(settings).some(k=>!preserve.includes(k)&&!readOnly.includes(k)))throw Error('unknown_remote_settings');
  for(const key of ['compatibility_date','compatibility_flags','observability','logpush','tags','tail_consumers'])if(!Object.hasOwn(settings,key))throw Error('remote_settings_incomplete');
  if(!/^\d{4}-\d{2}-\d{2}$/.test(settings.compatibility_date)||!Array.isArray(settings.compatibility_flags)||settings.compatibility_flags.some(x=>typeof x!=='string')||typeof settings.observability?.enabled!=='boolean'||typeof settings.logpush!=='boolean'||!Array.isArray(settings.tags)||!Array.isArray(settings.tail_consumers))throw Error('remote_settings_incomplete');
+ const allowed=(v,keys)=>v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).every(k=>keys.includes(k));
+ const obs=settings.observability;
+ if(!allowed(obs,['enabled','head_sampling_rate','issues','logs','traces','redact_query_string'])||obs.issues&&!allowed(obs.issues,['enabled'])||obs.logs&&!allowed(obs.logs,['enabled','invocation_logs','destinations','head_sampling_rate','persist'])||obs.traces&&!allowed(obs.traces,['enabled','destinations','head_sampling_rate','persist','propagation_policy']))throw Error('unknown_remote_settings');
+ for(const [key,keys]of Object.entries({placement:['mode'],limits:['cpu_ms','subrequests'],cache_options:['enabled','cross_version_cache']}))if(Object.hasOwn(settings,key)&&!allowed(settings[key],keys))throw Error('unknown_remote_settings');
+ if(settings.tail_consumers.some(v=>!allowed(v,['service','environment','namespace']))||settings.tags.some(v=>typeof v!=='string'))throw Error('unknown_remote_settings');
+ if(obs.traces?.propagation_policy===null)throw Error('unpreservable_remote_settings');
  const result=Object.fromEntries(preserve.filter(k=>Object.hasOwn(settings,k)).map(k=>[k,settings[k]]));
  if(result.exports){
   if(Object.keys(result.exports).length!==1||result.exports.AccountMeter?.type!=='durable-object'||result.exports.AccountMeter.storage!=='sqlite'||Object.keys(result.exports.AccountMeter).some(k=>!['type','storage','state'].includes(k)))throw Error('unreviewed_remote_exports');
@@ -27,14 +33,14 @@ function inspect(bindings,mode){
  if(durable.length!==1||durable[0].name!=='ACCOUNTS'||durable[0].class_name!=='AccountMeter'||durable[0].namespace_id!==namespace||durable[0].script_name&&durable[0].script_name!==worker||durable[0].environment&&durable[0].environment!=='production')throw Error('existing_namespace_mismatch');
  return bindings.map(b=>b.type.startsWith('secret_')?{name:b.name,type:b.type}:b).sort((a,b)=>a.name.localeCompare(b.name));
 }
-export async function verifyClosedHttp(mode,fetcher=fetch){
+export async function verifyClosedHttp(mode,fetcher=fetch,sha){
  const origin='https://recalm-api-cost-check.rough-sound-e8d7.workers.dev';
  const options={redirect:'error',signal:AbortSignal.timeout(10000)};
  const response=await fetcher(origin+'/health',options),health=await response.json();
- if(response.status!==200||health.stripeMode!==mode||['apiEnabled','billingEnabled','billingVerified','saleActive'].some(k=>health[k]!==false))throw Error('closed_http_health_failed');
+ if(response.headers.get('x-recalm-source-commit')!==sha||response.status!==200||health.stripeMode!==mode||['apiEnabled','billingEnabled','billingVerified','saleActive'].some(k=>health[k]!==false))throw Error('closed_http_health_failed');
  for(const path of ['/v1/stripe/webhook','/v1/stripe/meter-webhook']){
   const r=await fetcher(origin+path,{...options,method:'POST',headers:{'content-type':'application/json'},body:'{}'});
-  if(![400,503].includes(r.status))throw Error('closed_http_webhook_failed');
+  if(r.headers.get('x-recalm-source-commit')!==sha||![400,503].includes(r.status))throw Error('closed_http_webhook_failed');
   const body=await r.json();if(body.received===true||body.verification)throw Error('closed_http_webhook_failed');
  }
 }
@@ -62,7 +68,7 @@ export async function uploadClosed({sha,expected,mode='live',fetcher=fetch}){
  assertCheckout(sha);
  await cf('/scripts/'+worker,'PUT',body);
  if(canonical(await snapshot())!==canonical(before))throw Error('remote_retention_failed');
- await verifyClosedHttp(mode,fetcher);
+ await verifyClosedHttp(mode,fetcher,sha);
  console.log(JSON.stringify({worker,uploaded:true,stripeMode:mode,closed:true,settingsRetained:true,bindingsRetained:true,namespaceRetained:true,closedHttpVerified:true,...built.manifest}));
 }
 if(process.argv[1]&&fileURLToPath(import.meta.url)===process.argv[1]){
