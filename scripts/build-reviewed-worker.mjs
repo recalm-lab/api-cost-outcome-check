@@ -31,7 +31,7 @@ export function buildReviewedBundle(sha){
   source=source.replace(/export\s*\{([^}]+)\};?/g,(_,list)=>{for(const name of list.split(',').map(x=>x.trim())){if(!/^[A-Za-z_$][\w$]*$/.test(name))throw Error('unreviewed_build_export');named.push(name);}return '';});
   chunks.push('const '+names[path]+'=(()=>{\n'+source+'\nreturn {'+[...new Set(named)].join(',')+(hasDefault?(named.length?',':'')+'default:__default':'')+'};\n})();\n');
  }
- chunks.push('export const AccountMeter=__m6.AccountMeter;\nconst __api=__m6.default;\nexport default {fetch(request,env,ctx){return __api.fetch(request,env,ctx);}};\n');
+ chunks.push('export const AccountMeter=__m6.AccountMeter;\nconst __api=__m6.default;\nexport default {async fetch(request,env,ctx){const response=await __api.fetch(request,env,ctx);const headers=new Headers(response.headers);headers.set(\'x-recalm-source-commit\',\''+sha+'\');return new Response(response.body,{status:response.status,statusText:response.statusText,headers});}};\n');
  const bundle=chunks.join(''),bundleSha256=createHash('sha256').update(bundle).digest('hex');
  assertCheckout(sha);
  return {bundle,manifest:{sourceCommit:sha,bundleSha256,inputs}};
