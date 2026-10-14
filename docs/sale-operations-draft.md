@@ -2,13 +2,15 @@
 
 2026-10-14。実装正本は `src/worker.js` / `src/meter.js` / `src/billing.js`。本書は運用準備案であり、販売開始・有料契約・権限追加・削除・返金の実行承認ではない。料金、成功定義、UTC境界、上限を変更しない。[現在の本番閉鎖証跡](live-connection-2026-10-14.md)と[未発効の規約](terms-draft.md)を基点にする。
 
+本人は一般個人・個人事業主・法人を対象とし、事業目的だけには限定しないと決定した。後から既存利用者の権利を一方的に弱めない。[消費者向け条項・申込み表示のレビュー案](consumer-terms-review-draft.md)は未承認であり、90日保持案を含む保存期間の一括承認ではない。
+
 ## 保存する情報と目的
 
 |保存場所|コードが保持するもの|用途と削除上の制約|
 |---|---|---|
 |calls|Idempotency-KeyのHMAC、入力のHMAC、algorithm版、月、成功時刻、1円単価、安定Meter event ID、送信/再試行状態、invoice ID|二重計量防止・未送信照合・請求数量対応。本文・照合結果・平文のIdempotency-Keyは保存しない|
 |meter / periods|累計成功数、月間数、未精算/回収/免除額|別々の1,000円上限と繰越。利用中に月間数や未精算額を消さない|
-|billing|logical account、customer/subscription/session/invoiceの識別子、mode/catalog識別、同意版/時刻、利用/解約/保留/照合状態等|顧客と台帳を固定し、未知の残高・応答不明を保留する。JSON blobであることを本文保存と混同しない|
+|billing|logical account、customer/subscription/invoiceの識別子、mode/catalog識別、利用/解約/保留/照合状態等|顧客と台帳を固定し、未知の残高・応答不明を保留する。顧客ごとの独立した同意版/時刻は現在保存していない。JSON blobであることを本文保存と混同しない|
 |actions|Checkout/免除のidempotency識別、digest、初回試行/金額/完了状態、session ID/Checkout URL等|外部処理の再作成防止。Checkout URLは能力を持つリンクとして扱い、公開ログ/問い合わせ資料へ出さない|
 |invoices / webhooks|invoice範囲/状態/回収額、event IDと処理日時|回収額と通知の重複反映防止。Webhook本文は台帳へ保存しない|
 |Worker Secret CREDENTIALS|APIキーのSHA256とlogical account、有効/無効、期限、利用cap|平文APIキーは保存しない。これはStripe customer mappingとは別|
@@ -41,7 +43,7 @@ receipt削除後は同じnonceを新規として認識し得るため、旧キ�
 
 返金・credit・invoice訂正・紛争への回答/証拠提出は金銭/対外操作として本人承認を得る。処理ID・対象金額・根拠・前後残高だけを記録し、二度実行しない。現コードに一般返金APIはない。返金運用のためにCharges and Refunds/Disputes権限をWorkerキーへ追加しない。
 
-受付期限、回答期限、Stripe紛争期限への対応担当、返金手段/手数料負担は未決定。無条件返金、応答SLA、成功/節約保証、責任上限を勝手に約束しない。初期販売を事業目的限定にするか一般個人も含めるかの本人回答を待ち、責任・準拠法・紛争条項を仕上げる。
+受付期限、回答期限、Stripe紛争期限への対応担当、返金手段/手数料負担は未決定。無条件返金、応答SLA、成功/節約保証、責任上限を勝手に約束しない。一般個人を含む対象方針は本人決定済み。責任・準拠法・紛争条項は上記レビュー案で個別に確認する。
 
 ## 権限確認の残件を閉じる方法
 
