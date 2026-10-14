@@ -82,9 +82,9 @@ storage rollback/PITRでreceipt・outbox・settlementが巻き戻ると外部送
 
 ### live準備の残件と本人入力
 
-2026-10-13の別担当による独立読み取りでは、live `acct_1TqptlRUIufKFmuE` に本API用Product/Price/Webhookは未作成。既存の別商品・別サービスWebhookには触れない。live meterは、その後の本人作成報告で本API用を作成済みと確認した（event_name recalm_api_cost_check_success_v1、sum/raw/default payload）。正確IDの本人貼付と対象live mode/設定の照合は待機中であり、直接読み戻し済みとは扱わない。重複作成は不要。
+2026-10-13の別担当による独立読み取り時点では、live `acct_1TqptlRUIufKFmuE` に本API用Product/Price/Webhookは未作成だった。2026-10-14にProduct/Price作成・読み戻し報告を受領した（正確IDは最新節）。本API用live Webhookは未設定。既存の別商品・別サービスWebhookには触れない。live meterは、その後の本人作成報告で本API用を作成済みと確認した（event_name recalm_api_cost_check_success_v1、sum/raw/default payload）。2026-10-14に本人から正確ID `mtr_61VZYWJ5ULlQs4CCm41RUIufKFmuE4IC` を受領した。対象live mode/account/設定の直接読み戻しは別途照合し、本人受領と区別する。重複作成は不要。
 
-本人に入力いただくlive SecretはSTRIPE_RESTRICTED_KEY、STRIPE_WEBHOOK_SECRET、STRIPE_METER_WEBHOOK_SECRETの3つを準備後にまとめて案内する。これだけで販売可能とは扱わない。live商品/価格/2種類のWebhook設定、作成済みmeterの正確ID確認、非秘密manifest、live専用customer/account/認証対応、正式条件、提供導線を別途整える。新キー生成・権限拡張・実決済は現在の準備範囲に含まない。
+本人に入力いただくlive SecretはSTRIPE_RESTRICTED_KEY、STRIPE_WEBHOOK_SECRET、STRIPE_METER_WEBHOOK_SECRETの3つを準備後にまとめて案内する。これだけで販売可能とは扱わない。live商品/価格/2種類のWebhook設定、受領済みmeter IDの対象/設定照合、非秘密manifest、live専用customer/account/認証対応、正式条件、提供導線を別途整える。新キー生成・権限拡張・実決済は現在の準備範囲に含まない。
 
 
 ### 追加の安全準備コード（再配置なし）
@@ -99,4 +99,61 @@ storage rollback/PITRでreceipt・outbox・settlementが巻き戻ると外部送
 
 ### 旧タスク文書整合の基点
 
-`3cf745f71416d0c64598091b0fabb4880324dee6` を取得して関連文書のみを整合した。[基点CI38465298320](https://github.com/recalm-lab/api-cost-outcome-check/actions/runs/38465298320)成功、70回帰と本体/ガードは保持。初回helper手順は[sandbox-save-next](sandbox-save-next.md)の過去資料として扱い、現在の再生成/上書き指示にしない。[診断と既存実証](sandbox-connection-evidence.md)を区別する。本人作成済みlive meterの正確ID確認待ち、未設定live Product/Price/Webhook、未発効規約、未設定live Secret3つを残件として維持する。
+`3cf745f71416d0c64598091b0fabb4880324dee6` を取得して関連文書のみを整合した。[基点CI38465298320](https://github.com/recalm-lab/api-cost-outcome-check/actions/runs/38465298320)成功、70回帰と本体/ガードは保持。初回helper手順は[sandbox-save-next](sandbox-save-next.md)の過去資料として扱い、現在の再生成/上書き指示にしない。[診断と既存実証](sandbox-connection-evidence.md)を区別する。当時は本人作成済みlive meterの正確ID確認待ちだった。2026-10-14の受領記録と最新残件は次節を参照。
+
+
+## 2026-10-14 live Meter ID受領と開始条件（文書のみ・未適用）
+
+確認基点head: `7a279dc20e0cc6f0fce928c0ba30f9dc61b41f92`。70回帰とsandbox E2E・Stripe境界実績は既存証跡を再利用し、手動再実行しない。本節は非秘密の設定候補であり、test vars/Secret/デプロイ先を上書きするmanifestではない。
+
+|候補項目|値・確認範囲|
+|---|---|
+|STRIPE_MODE|live（未適用）|
+|STRIPE_ACCOUNT_ID|`acct_1TqptlRUIufKFmuE`|
+|STRIPE_METER_ID|`mtr_61VZYWJ5ULlQs4CCm41RUIufKFmuE4IC`（本人から正確ID受領）|
+|STRIPE_EVENT_NAME|`recalm_api_cost_check_success_v1`|
+|meter条件|sum/raw/default payload、stripe_customer_id/value（本人作成報告。対象account/livemode/設定の直接読み戻しは別確認）|
+|Product / STRIPE_PRICE_ID|`recalm_api_cost_check_v1` / `price_1UQKQ0RUIufKFmuEMN1jt6OU`。Stripe担当の作成・直接読み戻し報告を受領。本タスクは作成していない|
+|origin / TERMS_VERSION / live customer mapping|正式条件・提供導線・live専用customer/account決定後に確定。sandbox対応を流用しない|
+
+受領済みmeterを重複作成しない。価格は成功call税込JPY1、基本料/最低利用料なし、月次後払い、50円未満繰越・解約時50円未満免除、UTC月新規1000円と未精算合計1000円停止の承認済み条件を維持する。
+
+### 実装済みと実環境未完を分ける
+
+|項目|実装済み・既存証跡|本番開始までの残件|
+|---|---|---|
+|mode保護/配置|sandbox uploaderの既存mode=test事前検査、live/不明でPUTゼロ、Secret保持検査。旧Wrangler経路停止。70回帰成功|準備コードは再配置していない。live-closed code-only uploaderは設計のみ。既存mode=live/3flags=falseを保持する別経路が必要。uploadでtest→liveに切り替えない。古いSHA/tag再実行を避ける|
+|health|live・3flags=true・ローカル必須設定検証成功時だけsaleActive=true。Stripe通信/Secret出力なし、static demoはfalse|外部接続・規約発効・個別契約を保証しない。正式条件の承認とTERMS_VERSION固定検査/公開表示の整合が必要|
+|本番Webhook|snapshot/thin別経路、署名/時刻/mode検査、thin manual hold等を実装。sandbox snapshotの200・契約/精算実証あり|本API用live snapshot/ thin destinationは未設定。snapshotは/v1/stripe/webhook・13events・REST version2026-08-26.dahlia、thinは/v1/stripe/meter-webhook・v1.billing.meter.error_report_triggered/no_meter_found。対象live accountと2宛先の読み戻し/署名確認が必要|
+|3 Secret|runtimeはmode一致restricted keyと異なる2署名Secretを要求。既存HMAC/registryは保存済みとして保全|本人が準備後にSTRIPE_RESTRICTED_KEY、STRIPE_WEBHOOK_SECRET、STRIPE_METER_WEBHOOK_SECRETへlive値をまとめて設定する工程は未実施。値を読出し/転記しない。restricted scopeと宛先の同一live account対応を確認する|
+|account継続|同じ論理accountの更新用合成credentialはreceipt/月上限/解約を共有するworkerd回帰済み|同一live account内の更新は同じcustomer/契約/DOを保つ。test accountのDOをliveへ付け替えることとは別。live専用customer/新しい論理accountと有効credentialの対応、期限切れ窓口を確定。HMAC・既存namespace・sandbox台帳は維持。自動キー発行/契約移行は未実装|
+|正式条件|docs/terms-draft.md→scripts/build-terms.mjs→public/terms.html生成経路あり、現在未発効|保持期間/削除・バックアップ、訂正/返金運用、責任/SLA/準拠法、支払再試行日程、キー更新/期限切れ解約/販売者開示の実運用と開始日を本人承認。未承認本文を公開/発効しない|
+|性能と期間|最大入力workerd機能回帰、既存CPU集計、mock月境界・Stripe clock境界・sandbox Worker成功を区別して保存済み|最大入力に対応付けた個別実環境CPU等の未完は残る。既存成功試験をやり直して未完に代えない|
+
+### 販売停止状態での設定準備
+
+1. 文書上の候補/担当成果だけを集める。今回test環境・既存Secret・実行flagsを変更しない。
+2. 作成済みProduct/Priceとmeterの対象live account・条件、2種類WebhookのID/宛先/対象events、非秘密mappingを確認してから、本人入力を3 Secret分まとめて案内する。3値だけで開始可能とは扱わない。
+3. 実際の環境切替は別承認の設定工程とする。live-closed配置は既にlive/3flags=falseの配置先へcodeだけを載せ、mode/vars/Secret/SQLiteを保つ設計。現在のsandbox uploaderはこの目的には使用できない。
+4. 現行billingConfigはliveでBILLING_ENABLED=trueとBILLING_VERIFIED=trueを要求するため、3flags=falseのままlive WebhookやCheckoutが200になるとは約束しない。閉鎖状態の署名/対象確認をどう分離して行うかと、検証後の段階的flag操作は未確定の開始手順であり、勝手に有効化して代用しない。
+5. 正式条件、提供導線、確認結果と承認した開始判定が揃ってから販売表示とflagsの開始を判断する。公開募集・有料契約・実顧客請求をこの準備で行わない。
+
+
+### 2026-10-14 Product/Price成果受領と次の設定項目
+
+Stripe担当の作成・直接読み戻し報告:
+- live account `acct_1TqptlRUIufKFmuE`、Product `recalm_api_cost_check_v1`、表示名 Recalm API Cost Check、unit label 成功リクエスト。
+- Price `price_1UQKQ0RUIufKFmuEMN1jt6OU`: JPY/unit_amount1/tax_behavior=inclusive、month/interval_count1/usage_type=metered、billing_scheme=per_unit、meter `mtr_61VZYWJ5ULlQs4CCm41RUIufKFmuE4IC`。
+- Product.default_priceは同Price。lookup_key `recalm_api_cost_check_success_jpy1_monthly_v1` はactive1/inactive0で重複なし。
+- Priceのmeter関連付けのAPI読み戻しと、meter本体のsum/raw/event/payloadは別証拠。本体API直接読取りは未対応で、後者は以前の本人作成画面確認に依拠する。この文書担当は追加のProduct/Price/meterを作成しない。
+
+次に用意するlive Webhookは、別サービスの既存endpointに追加せず本API用の2宛先を対象live accountの@selfに設定する案。まだ実行していない。
+
+|形式|候補URL|必要events/条件|
+|---|---|---|
+|snapshot|`https://recalm-api-cost-check.rough-sound-e8d7.workers.dev/v1/stripe/webhook`|version `2026-08-26.dahlia`。checkout.session.completed、checkout.session.async_payment_succeeded、checkout.session.async_payment_failed、customer.subscription.created、customer.subscription.updated、customer.subscription.deleted、invoice.created、invoice.updated、invoice.finalized、invoice.paid、invoice.payment_failed、invoice.voided、invoice.marked_uncollectible（13）|
+|thin|`https://recalm-api-cost-check.rough-sound-e8d7.workers.dev/v1/stripe/meter-webhook`|v1.billing.meter.error_report_triggered、v1.billing.meter.no_meter_found（2）。snapshotとは別destination・別signing Secret。thinはunversioned。runtimeはv2詳細fetchをしない|
+
+上記originは既存Workerの候補であり、現在test設定の実環境へlive通知を送って検証してよいという指示ではない。live destination作成時は準備した閉鎖状態・宛先の分離・開始手順と順序を確認する。作成後はdestination ID、enabled/形式/@self/account/URL/event list/versionを秘密値なしで読み戻す。現状のmode不一致でliveイベントを送れば拒否されるため、配信成功を未確認のまま記載しない。
+
+非秘密設定の候補: STRIPE_MODE=live、STRIPE_ACCOUNT_ID=acct_1TqptlRUIufKFmuE、STRIPE_PRICE_ID=price_1UQKQ0RUIufKFmuEMN1jt6OU、STRIPE_METER_ID=mtr_61VZYWJ5ULlQs4CCm41RUIufKFmuE4IC、STRIPE_EVENT_NAME=recalm_api_cost_check_success_v1。PUBLIC_BASE_URLは上記origin候補。BILLING_ACCOUNTSと有効credentialの同一論理account対応、正式TERMS_VERSIONは未確定で、空のmappingを有効設定と扱わない。これらをsandbox-vars.jsonや既存Secretへ適用していない。
