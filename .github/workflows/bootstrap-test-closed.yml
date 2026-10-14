@@ -1,0 +1,47 @@
+name: Bootstrap approved test closed Worker
+on:
+  push:
+    branches: ['feat/deterministic-cost-check']
+    paths: ['.github/workflows/bootstrap-test-closed.yml']
+permissions:
+  contents: read
+concurrency:
+  group: recalm-existing-sandbox-worker
+  cancel-in-progress: false
+jobs:
+  bootstrap:
+    if: github.repository == 'recalm-lab/api-cost-outcome-check' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: a506c02e7677c6376bc290fa99882bbc80cd7283
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Verify flag operation without runtime credential
+        run: node --test test/close-test-flags.test.js
+      - uses: actions/checkout@v6
+        with:
+          ref: 4c42a85efa3e4e31f00039e692a323f63128f2f7
+          path: reviewed-worker
+          persist-credentials: false
+      - name: Fresh build approved source without runtime credential
+        working-directory: reviewed-worker
+        run: node scripts/build-reviewed-worker.mjs 4c42a85efa3e4e31f00039e692a323f63128f2f7 "$RUNNER_TEMP/recalm-approved-worker.js"
+      - name: Read settings before any mutation
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node scripts/prepare-worker-readonly.mjs "$RUNNER_TEMP/recalm-observed-settings.json"
+      - name: Close only three test flags and verify all other bindings and settings
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node scripts/close-test-flags.mjs
+      - name: Content-only test closed upload with settings binding and HTTP readback
+        working-directory: reviewed-worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node scripts/upload-test-closed-worker.mjs 4c42a85efa3e4e31f00039e692a323f63128f2f7 ../deploy/test-closed-expected-settings.json
+      # No mode transition, live activation, Stripe calls, Secret values, or other Worker targets.
