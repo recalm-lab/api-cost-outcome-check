@@ -56,3 +56,8 @@ live Product `recalm_api_cost_check_v1` / Price `price_1UQKQ0RUIufKFmuEMN1jt6OU`
 今回の変更はproduction/resumptionの文書だけ。test vars・Secret・デプロイ・Stripe切替・請求・キー生成・公開募集・有料契約・正式条件発効は行っていない。
 
 本API用live Webhook2宛先、3 Secret、live専用customer/同一論理accountの有効credential対応、安全なclosed設定/署名検証/開始順序、正式条件の未承認事項は残る。必要event一覧と非秘密live設定候補をproduction.mdに記録した。Priceとmeter IDの関連付けはStripe担当API読み戻し報告、meter本体のsum/raw/event/payloadは本人作成画面確認であり、API直接読取り済みとはしない。
+
+
+## 2026-10-14 06:01 UTC — test閉鎖配置完了
+
+[実配置証跡](test-closed-deployment-evidence.md)。Workerはtestのまま3flag=false。source SHA `4c42a85efa3e4e31f00039e692a323f63128f2f7` のfresh buildをcontent-only APIで配置し、保存後settings/bindings/namespace、HTTP source SHA、health.saleActive=false、snapshot/thinの安全拒否を確認した。run38519747808 / job115706485524成功。observability未返却、content-only APIの保持仕様に基づき変更なし。旧来の「test閉鎖コードが未配置」という記述はこの更新で解消した。本番mode切替・Stripe操作・Secret生成/取得/上書き・販売開始はこの工程では行っていない。
