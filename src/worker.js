@@ -1,8 +1,8 @@
 import { DurableObject } from 'cloudflare:workers';
 import { reconcile, LIMITS, InputError } from './reconcile.js';
 import { initMeter, recordSuccess, state, saveState, one } from './meter.js';
-import { StripeClient, billingConfig, verifyWebhook, validateMeterEvent, BillingError, objectId } from './stripe.js';
-import { BillingService } from './billing.js';
+import { StripeClient, billingConfig, liveClosed, verifyWebhook, validateMeterEvent, BillingError, objectId } from './stripe.js';
+import { BillingService, verifyCatalog } from './billing.js';
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' } });
 const encoder = new TextEncoder();
 async function hash(value) {
@@ -65,13 +65,23 @@ export default {
     if(request.method!==(path==='/v1/billing'?'GET':'POST'))return json({error:'method_not_allowed'},405);
     let dispatched=false;
     try{
-      const config=billingConfig(env);
+      const closed=liveClosed(env)&&['/v1/stripe/webhook','/v1/stripe/meter-webhook'].includes(path);
+      const config=billingConfig(env,closed?'closed':'runtime');
       if(['/v1/stripe/webhook','/v1/stripe/meter-webhook'].includes(path)){
         if(!env.ACCOUNTS)throw new BillingError();
         const thin=path==='/v1/stripe/meter-webhook';
         const text=await boundedBody(request,65536),event=await verifyWebhook(text,request.headers.get('stripe-signature'),thin?env.STRIPE_METER_WEBHOOK_SECRET:env.STRIPE_WEBHOOK_SECRET,undefined,thin?'thin':'snapshot');
         if(thin)validateMeterEvent(event,config.meterId);
         if(event.livemode!==config.livemode)throw new BillingError('mode_mismatch',400);
+        if(closed){
+          if(event.account!=null||event.context!=null)throw new BillingError('account_mismatch',400);
+          const snapshots=['checkout.session.completed','checkout.session.async_payment_succeeded','checkout.session.async_payment_failed','customer.subscription.created','customer.subscription.updated','customer.subscription.deleted','invoice.created','invoice.updated','invoice.finalized','invoice.paid','invoice.payment_failed','invoice.voided','invoice.marked_uncollectible'];
+          if(!thin&&!snapshots.includes(event.type))throw new BillingError('invalid_event',400);
+          if(!thin&&!Object.values(config.accounts).some(c=>c.customerId===objectId(event.data.object.customer)))throw new BillingError('customer_mismatch',400);
+          await verifyCatalog(new StripeClient(env,undefined,'closed'));
+          // Do not acknowledge delivery, dispatch to a ledger, or persist anything while closed.
+          return json({error:'billing_closed',verification:'signature_and_catalog_verified',received:false},503);
+        }
         const customer=thin?null:objectId(event.data.object.customer);
         const matched=thin?Object.keys(config.accounts):Object.keys(config.accounts).filter(a=>config.accounts[a].customerId===customer);
         for(const account of matched){const stub=env.ACCOUNTS.get(env.ACCOUNTS.idFromName(account));const response=await stub.fetch('https://internal/webhook',{method:'POST',body:JSON.stringify(event),headers:{'x-account':account}});if(!response.ok)return json({error:'billing_sync_pending'},503);}
