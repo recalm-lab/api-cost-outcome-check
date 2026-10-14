@@ -30,3 +30,19 @@
 この完了はtestの販売停止状態での受信コード配置に限る。本番mode、販売開始、Stripe destination作成、顧客請求は未実施。親が進める承認済みdestination作成と本人の専用Secret保存、その後のlive-closed設定と署名/catalog確認へ引き継ぐ。本番切替まではlive通知をtest閉鎖受信側が安全拒否する。
 
 合成sandbox実E2Eは再実行していない。規約・保存期間・責任上限・返金運用・最大入力CPU等の販売開始条件は別途確定が必要。
+
+
+## 本番通知先のreadback完了・本人Secret入力待ち
+
+親のStripe担当から受領した非秘密の確認結果：Stripe本番account `acct_1TqptlRUIufKFmuE` / @self に次の2宛先が作成され、保存後のreadbackが完了した。
+
+|形式|宛先ID|URL|設定|
+|---|---|---|---|
+|snapshot|`we_1UQLJYRUIufKFmuEOSxzKfNH`|https://recalm-api-cost-check.rough-sound-e8d7.workers.dev/v1/stripe/webhook|enabled、指定13イベント、API版2026-08-26.dahlia|
+|thin|`ed_61VZjIA2JGNbpTnh416V0Dr7RqHNpbTY9mEkqeEfwPR2`|https://recalm-api-cost-check.rough-sound-e8d7.workers.dev/v1/stripe/meter-webhook|enabled、指定2イベント|
+
+既存Grokを含め本番通知先は合計3件で重複なし。秘密値は要求・取得・表示していない。
+
+ユーザーには本人操作でCloudflareのSecret型 `STRIPE_WEBHOOK_SECRET` / `STRIPE_METER_WEBHOOK_SECRET` へそれぞれの署名Secretを保存する案内を送付済み。**保存完了の返答待ち**。既存 `rk_live` キーの作成有無も親が質問済みで、返答待ち。本人の返答後に次工程を判断する。
+
+受信側は既存Workerのtest・API_ENABLED=false・BILLING_ENABLED=false・BILLING_VERIFIED=falseを維持する。配置source SHAは `4c42a85efa3e4e31f00039e692a323f63128f2f7` のまま。この記録更新では切替・再配置・コード変更を行っていない。
