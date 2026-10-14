@@ -30,6 +30,11 @@ export async function prepare(fetcher=fetch){
  for(const operation of ['deployments','versions']){
   const response=await fetcher(base+'/scripts/'+worker+'/'+operation,{method:'GET',headers:{authorization:'Bearer '+process.env.CLOUDFLARE_API_TOKEN},redirect:'error',signal:AbortSignal.timeout(15000)});
   let body;try{body=await response.json();}catch{body={};}
+  if(operation==='versions'&&response.ok&&body.result?.items?.[0]?.id){
+   const version=await get('/scripts/'+worker+'/versions/'+body.result.items[0].id);
+   const runtime=version.resources?.script_runtime;
+   console.log(JSON.stringify({readOnly:true,operation:'current_version_exports',exportsPresent:Object.hasOwn(runtime||{},'exports'),exports:runtime?.exports}));
+  }
   console.log(JSON.stringify({readOnly:true,operation,httpStatus:response.status,errorCodes:(body.errors||[]).map(e=>e.code).filter(Number.isSafeInteger),...(response.ok?operation==='deployments'?{activeVersions:body.result?.deployments?.[0]?.versions}:{latestVersion:body.result?.items?.[0]?.id}:{})}));
  }
  return {worker,account,readOnly:true,flags,namespaceVerified:true,settings,expectedSettingsSha256:createHash('sha256').update(canonical(settings)).digest('hex'),secretBindingsPresent:Object.fromEntries(['STRIPE_RESTRICTED_KEY','STRIPE_WEBHOOK_SECRET','STRIPE_METER_WEBHOOK_SECRET','FINGERPRINT_SECRET','CREDENTIALS'].map(name=>[name,bindings.some(b=>b.name===name&&['secret_text','secret_key'].includes(b.type))])),targetBindings:Object.fromEntries(['STRIPE_ACCOUNT_ID','STRIPE_PRICE_ID','STRIPE_METER_ID','STRIPE_EVENT_NAME','TERMS_VERSION'].map(name=>{const b=bindings.find(b=>b.name===name);return [name,b?.type==='plain_text'?b.text:'unconfigured'];}))};
