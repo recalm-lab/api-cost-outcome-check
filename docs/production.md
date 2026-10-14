@@ -157,3 +157,8 @@ Stripe担当の作成・直接読み戻し報告:
 上記originは既存Workerの候補であり、現在test設定の実環境へlive通知を送って検証してよいという指示ではない。live destination作成時は準備した閉鎖状態・宛先の分離・開始手順と順序を確認する。作成後はdestination ID、enabled/形式/@self/account/URL/event list/versionを秘密値なしで読み戻す。現状のmode不一致でliveイベントを送れば拒否されるため、配信成功を未確認のまま記載しない。
 
 非秘密設定の候補: STRIPE_MODE=live、STRIPE_ACCOUNT_ID=acct_1TqptlRUIufKFmuE、STRIPE_PRICE_ID=price_1UQKQ0RUIufKFmuEMN1jt6OU、STRIPE_METER_ID=mtr_61VZYWJ5ULlQs4CCm41RUIufKFmuE4IC、STRIPE_EVENT_NAME=recalm_api_cost_check_success_v1。PUBLIC_BASE_URLは上記origin候補。BILLING_ACCOUNTSと有効credentialの同一論理account対応、正式TERMS_VERSIONは未確定で、空のmappingを有効設定と扱わない。これらをsandbox-vars.jsonや既存Secretへ適用していない。
+
+
+## 2026-10-14 閉鎖コード実装の更新
+
+[live-closed手順](live-closed.md)に既存live-closed Workerへのコード専用uploader、署名付き通知での読み取り専用catalog確認、API別の最小権限、現在の配置/設定/規約の残件をまとめた。旧記述の「3flag=falseでは署名確認できない」はこのブランチでは解消した。実配置・Secret保存・本番Webhook作成は未実施で、現Workerのtest→live切替はuploaderの範囲外。既存sandbox E2Eの完了証跡はresumption-statusを参照し、過去の未実行記述を現在の結論に使わない。
