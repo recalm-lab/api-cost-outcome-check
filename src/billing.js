@@ -16,6 +16,7 @@ export async function verifyCatalog(client){
     const account=await client.request('GET','/v1/account');if(account.id!==config.accountId||!account.charges_enabled||!account.payouts_enabled)throw new BillingError('account_mismatch');
     const price=await client.request('GET','/v1/prices/'+config.priceId,{'expand[0]':'product'});
     const meter=await client.request('GET','/v1/billing/meters/'+config.meterId);
+    if(client.readOnly&&(account.charges_enabled!==true||account.payouts_enabled!==true||price.product?.id!=='recalm_api_cost_check_v1'||price.billing_scheme!=='per_unit'||price.transform_quantity))throw new BillingError('catalog_mismatch');
     if(price.id!==config.priceId||meter.id!==config.meterId||meter.livemode!==config.livemode||price.livemode!==config.livemode||!price.active||!price.product?.active||price.currency!=='jpy'||price.unit_amount!==1||price.tax_behavior!=='inclusive'||price.recurring?.interval!=='month'||price.recurring.interval_count!==1||price.recurring.usage_type!=='metered'||price.recurring.meter!==config.meterId||meter.status!=='active'||meter.event_name!==config.eventName||meter.default_aggregation?.formula!=='sum'||meter.customer_mapping?.event_payload_key!=='stripe_customer_id'||meter.customer_mapping?.type!=='by_id'||meter.value_settings?.event_payload_key!=='value'||meter.event_time_window)throw new BillingError('catalog_mismatch');
   }
 
