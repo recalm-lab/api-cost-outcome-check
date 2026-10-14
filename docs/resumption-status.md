@@ -31,7 +31,7 @@
 1. 実Worker最大16KiB/各40件/40段retry、cold/warm、並列、保管receipt増加条件を対象リクエストに対応付けてCPU測定する。既存24時間集計やNode benchmarkをこの結果の代わりにしない。
 2. Worker月境界と初月、invoice grace、回収失敗・50円以上解約回収の実runtime検証範囲を確認する。mock/workerdやStripe clockのみの確認結果を実Worker結果に置き換えて表示しない。
 3. 正式条件の保持期間・計量訂正/返金・責任・支払時期と、購入前の販売者情報開示運用を確定し、既存terms生成経路とCheckout同意版へ反映する。
-4. 本人作成済みlive meterの正確IDを確認し、live専用商品/価格/2種類Webhook・非秘密manifest・customer/account/認証導線と、closed配置・古いsandbox deployment権限の扱いを準備する。meterを重複作成しない。実行は本番開始承認の対象。sandbox DOの請求先/modeをliveへ付け替えない。
+4. 本人受領済みlive meter IDの対象account/mode/条件を照合し、live専用商品/価格/2種類Webhook・非秘密manifest・customer/account/認証導線と、closed配置・古いsandbox deployment権限の扱いを準備する。meterを重複作成しない。実行は本番開始承認の対象。sandbox DOの請求先/modeをliveへ付け替えない。
 
 本記録の作業ではcode再配置、flag変更、新契約・実課金、権限拡張、秘密の再生成を行っていない。事業継続と実売開始は別の状態であり、実売検証完了とは報告しない。
 
@@ -40,8 +40,19 @@
 
 今回の文書修正基点headは `3cf745f71416d0c64598091b0fabb4880324dee6` と再取得で一致した。旧61002a7系と01281083系は既に統合済みで、本体・modeガード・70回帰を保持している。[基点のCI38465298320](https://github.com/recalm-lab/api-cost-outcome-check/actions/runs/38465298320)は成功済み。コードを巻き戻さない。
 
-live `acct_1TqptlRUIufKFmuE` の本API用meterは**本人の作成報告済み**。event_name `recalm_api_cost_check_success_v1`、sum/raw/default payload（stripe_customer_id/value）という報告を引き継ぎ、正確meter IDの本人貼付・対象modeとの照合を待つ。まだID/設定を直接読み戻したとは扱わない。**新しいmeterの重複作成は不要**。
+live `acct_1TqptlRUIufKFmuE` の本API用meterは**本人の作成報告済み**。event_name `recalm_api_cost_check_success_v1`、sum/raw/default payload（stripe_customer_id/value）という報告を引き継ぎ、2026-10-14に正確meter ID `mtr_61VZYWJ5ULlQs4CCm41RUIufKFmuE4IC` を本人から受領した。対象account/mode/設定の直接読み戻しは別確認とし、受領と区別する。**新しいmeterの重複作成は不要**。
 
-live Product/Price/本API用snapshot・thin Webhookは未設定。未発効規約とlive Secret3つ（STRIPE_RESTRICTED_KEY、STRIPE_WEBHOOK_SECRET、STRIPE_METER_WEBHOOK_SECRET）も未完のまま。3秘密値の設定だけで開始可能とは案内しない。
+live Product `recalm_api_cost_check_v1` / Price `price_1UQKQ0RUIufKFmuEMN1jt6OU` は2026-10-14にStripe担当の作成・読み戻し完了報告を受領した。税込JPY1/month/metered/per_unit、default_priceとlookup_key重複なしも同報告で確認。本API用snapshot・thin Webhookは未設定。未発効規約とlive Secret3つ（STRIPE_RESTRICTED_KEY、STRIPE_WEBHOOK_SECRET、STRIPE_METER_WEBHOOK_SECRET）も未完のまま。3秘密値の設定だけで開始可能とは案内しない。
 
 [sandbox-save-next](sandbox-save-next.md)を過去資料へ変更し、現在のhelper再生成・上書きは不要と明記。[sandbox-connection-evidence](sandbox-connection-evidence.md)にはmetadata診断の値未検証と、既存の署名Webhook/契約/1call/retry0/解約免除/49→50回収の実証を区別して併記した。今回の整合は関連文書のみであり、Secret・実workflowタグ・デプロイ・Stripe/CF設定は変更していない。
+
+
+## 2026-10-14 Meter ID受領後の引継ぎ
+
+最新確認基点head `7a279dc20e0cc6f0fce928c0ba30f9dc61b41f92` を確認。本人受領済みlive Meter ID `mtr_61VZYWJ5ULlQs4CCm41RUIufKFmuE4IC` / live account `acct_1TqptlRUIufKFmuE` を[productionの非秘密候補](production.md#2026-10-14-live-meter-id受領と開始条件文書のみ未適用)へ記録した。meter重複作成不要。Stripe担当のProduct/Price成果（recalm_api_cost_check_v1 / price_1UQKQ0RUIufKFmuEMN1jt6OU）も受領した。このタスクでは商品・価格を作成していない。
+
+70回帰・sandbox E2E・49→50/1000回収の既存証跡を再利用し、手動再実行しない。実装済み署名/台帳/同一account更新/modeガード/healthと、未配置コード・未実装live-closed uploader・未設定live Webhook/3 Secret/customer対応・未承認規約を分けた。現行live billingConfigでは3flags=falseのまま課金経路やWebhookが200になるわけではないため、安全な閉鎖検証と段階的開始手順は別途確定する。
+
+今回の変更はproduction/resumptionの文書だけ。test vars・Secret・デプロイ・Stripe切替・請求・キー生成・公開募集・有料契約・正式条件発効は行っていない。
+
+本API用live Webhook2宛先、3 Secret、live専用customer/同一論理accountの有効credential対応、安全なclosed設定/署名検証/開始順序、正式条件の未承認事項は残る。必要event一覧と非秘密live設定候補をproduction.mdに記録した。Priceとmeter IDの関連付けはStripe担当API読み戻し報告、meter本体のsum/raw/event/payloadは本人作成画面確認であり、API直接読取り済みとはしない。
