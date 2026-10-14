@@ -61,3 +61,8 @@ PaymentIntents/Charges/Refunds Write、Product/Price Write、Webhook/Event desti
 公開準備とlive_enabledを表示するローカル設定検査の実装は済みだが、公開販売が承認・検証済みであることをhealthだけで証明できない。
 
 実配置の成功はmock CIでは確定しない。read APIが必要設定を返さない、保持不能な設定がある場合は事前停止する。PUT後の不一致やHTTP不一致は自動rollbackせず、3flag=falseを維持して原因を確認する。設定の同時編集を止め、署名通知の再送期限内に準備を完了できない場合の再取得・再送は別運用として扱う。
+
+
+## observability未返却の限定修正
+
+公式settings GETでobservabilityはoptional、content-only PUTはconfig/metadataを変更しない。したがって未返却時は期待JSONにもこのfieldを追加せず、存在しない状態を前後比較する。falseへ補完しない。存在する場合だけ型・内容を検証し、absent→present / present→absent / 値変更は停止する。対応source SHAは `4c42a85efa3e4e31f00039e692a323f63128f2f7`。修正CIとfresh bundle検証が成功した。配置実行・読み戻し結果は別証跡で確認する。
