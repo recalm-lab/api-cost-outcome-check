@@ -22,12 +22,12 @@ jobs:
           node-version: '24'
       - uses: actions/checkout@v6
         with:
-          ref: a0c68b00c55805dc029aaa93e10885a5e6e21b27
+          ref: 4c42a85efa3e4e31f00039e692a323f63128f2f7
           path: reviewed-worker
           persist-credentials: false
       - name: Fresh build reviewed code without runtime credential
         working-directory: reviewed-worker
-        run: node scripts/build-reviewed-worker.mjs a0c68b00c55805dc029aaa93e10885a5e6e21b27 "$RUNNER_TEMP/recalm-prepared-worker.js"
+        run: node scripts/build-reviewed-worker.mjs 4c42a85efa3e4e31f00039e692a323f63128f2f7 "$RUNNER_TEMP/recalm-prepared-worker.js"
       - name: Read only exact Worker settings and binding metadata
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
