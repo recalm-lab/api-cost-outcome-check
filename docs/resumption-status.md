@@ -61,3 +61,10 @@ live Product `recalm_api_cost_check_v1` / Price `price_1UQKQ0RUIufKFmuEMN1jt6OU`
 ## 2026-10-14 06:01 UTC — test閉鎖配置完了
 
 [実配置証跡](test-closed-deployment-evidence.md)。Workerはtestのまま3flag=false。source SHA `4c42a85efa3e4e31f00039e692a323f63128f2f7` のfresh buildをcontent-only APIで配置し、保存後settings/bindings/namespace、HTTP source SHA、health.saleActive=false、snapshot/thinの安全拒否を確認した。run38519747808 / job115706485524成功。observability未返却、content-only APIの保持仕様に基づき変更なし。旧来の「test閉鎖コードが未配置」という記述はこの更新で解消した。本番mode切替・Stripe操作・Secret生成/取得/上書き・販売開始はこの工程では行っていない。
+
+
+## 本番通知先2件作成完了・本人入力待ち（親のreadback報告）
+
+本番 `acct_1TqptlRUIufKFmuE` / @self のsnapshot `we_1UQLJYRUIufKFmuEOSxzKfNH` とthin `ed_61VZjIA2JGNbpTnh416V0Dr7RqHNpbTY9mEkqeEfwPR2` はenabledで、指定URL・13/2イベント・snapshot API版2026-08-26.dahliaのreadbackが完了。既存Grokを含め計3件、重複なし。[詳細と本人入力待ち](test-closed-deployment-evidence.md#本番通知先のreadback完了本人secret入力待ち)を参照。
+
+本人による `STRIPE_WEBHOOK_SECRET` / `STRIPE_METER_WEBHOOK_SECRET` のCloudflare保存は返答待ち。既存rk_liveキーの作成有無も未確認。秘密値は扱っていない。test・3flag=false・配置source SHA4c42a85を保持し、本番切替や再配置は行っていない。この更新は引継ぎ文書のみで、テスト再実行を避けるためcommitにskip ciを指定した。
