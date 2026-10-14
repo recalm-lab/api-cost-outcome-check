@@ -33,3 +33,5 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: node scripts/prepare-worker-readonly.mjs "$RUNNER_TEMP/recalm-expected-settings.json"
       # No PUT, flag/Secret operations, deployment, lifecycle calls, or external artifacts.
+
+# Read-only diagnostic pass identifies absent settings; it never synthesizes defaults.
