@@ -13,7 +13,7 @@ export function billingConfig(env,purpose='runtime') {
   let base;try{base=new URL(env.PUBLIC_BASE_URL);}catch{throw new BillingError();}
   if(base.protocol!=='https:'||base.username||base.password||base.pathname!=='/'||base.search||base.hash)throw new BillingError();
   let accounts;try{accounts=JSON.parse(env.BILLING_ACCOUNTS);}catch{throw new BillingError();}
-  if(!accounts||Array.isArray(accounts)||typeof accounts!=='object'||(Object.keys(accounts).length<1||Object.keys(accounts).length>32))throw new BillingError();
+  if(!accounts||Array.isArray(accounts)||typeof accounts!=='object'||(Object.keys(accounts).length<(purpose==='closed'?0:1)||Object.keys(accounts).length>32))throw new BillingError();
   const customers=new Set();for(const [account,c]of Object.entries(accounts)){if(!/^[A-Za-z0-9_-]{1,64}$/.test(account)||!c||Object.keys(c).some(k=>k!=='customerId')||!/^cus_[A-Za-z0-9]+$/.test(c.customerId)||customers.has(c.customerId))throw new BillingError();customers.add(c.customerId);}
   return {mode,livemode:mode==='live',accountId:env.STRIPE_ACCOUNT_ID,priceId:env.STRIPE_PRICE_ID,meterId:env.STRIPE_METER_ID,eventName:env.STRIPE_EVENT_NAME,base:base.origin,accounts};
 }
@@ -44,7 +44,7 @@ export function validateMeterEvent(event,meterId){
   // Missing/invalid meter cannot safely be attributed: conservatively hold every configured account.
   return event;
 }
-export async function verifyWebhook(text,header,secret,nowSeconds=Math.floor(Date.now()/1000),format='snapshot') {
+export async function verifyWebhook(text,header,secret,nowSeconds=Math.floor(Date.now()/1000),format='snapshot',closed=false) {
   if(typeof header!=='string'||header.length>2048)throw new BillingError('invalid_signature',400);
   const fields=header.split(',').map(p=>p.split('='));const timestamps=fields.filter(([k])=>k==='t');
   if(timestamps.length!==1||!/^\d{1,12}$/.test(timestamps[0][1]))throw new BillingError('invalid_signature',400);
@@ -56,7 +56,7 @@ export async function verifyWebhook(text,header,secret,nowSeconds=Math.floor(Dat
   let event;try{event=JSON.parse(text);}catch{throw new BillingError('invalid_event',400);}
   if(!event||!/^evt_[A-Za-z0-9_]{1,150}$/.test(event.id)||typeof event.type!=='string'||typeof event.livemode!=='boolean')throw new BillingError('invalid_event',400);
   if(format==='snapshot'){if(!event.data?.object||event.type.startsWith('v1.billing.meter.')||event.type.startsWith('billing.meter.'))throw new BillingError('invalid_event',400);}
-  else if(format!=='thin'||event.object!=='v2.core.event'||!METER_EVENTS.includes(event.type))throw new BillingError('invalid_event',400);
+  else if(format!=='thin'||event.object!=='v2.core.event'||(!METER_EVENTS.includes(event.type)&&!(closed&&event.type==='v2.core.event_destination.ping')))throw new BillingError('invalid_event',400);
   return event;
 }
 export const objectId=value=>typeof value==='string'?value:value?.id;

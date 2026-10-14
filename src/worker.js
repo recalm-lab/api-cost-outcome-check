@@ -70,8 +70,12 @@ export default {
       if(['/v1/stripe/webhook','/v1/stripe/meter-webhook'].includes(path)){
         if(!env.ACCOUNTS)throw new BillingError();
         const thin=path==='/v1/stripe/meter-webhook';
-        const text=await boundedBody(request,65536),event=await verifyWebhook(text,request.headers.get('stripe-signature'),thin?env.STRIPE_METER_WEBHOOK_SECRET:env.STRIPE_WEBHOOK_SECRET,undefined,thin?'thin':'snapshot');
-        if(thin)validateMeterEvent(event,config.meterId);
+        const text=await boundedBody(request,65536),event=await verifyWebhook(text,request.headers.get('stripe-signature'),thin?env.STRIPE_METER_WEBHOOK_SECRET:env.STRIPE_WEBHOOK_SECRET,undefined,thin?'thin':'snapshot',closed);
+        const ping=closed&&thin&&event.type==='v2.core.event_destination.ping';
+        if(ping){
+          const destination='ed_61VZjIA2JGNbpTnh416V0Dr7RqHNpbTY9mEkqeEfwPR2';
+          if(event.related_object?.id!==destination||event.related_object.type!=='v2.core.event_destination'||event.related_object.url!=='/v2/core/event_destinations/'+destination)throw new BillingError('destination_mismatch',400);
+        }else if(thin)validateMeterEvent(event,config.meterId);
         if(event.livemode!==config.livemode)throw new BillingError('mode_mismatch',400);
         if(closed){
           if(event.account!=null||event.context!=null)throw new BillingError('account_mismatch',400);

@@ -84,3 +84,27 @@ test('same-customer other-product notifications never reach billing and never cl
   assert.ok(mock.calls.every(c=>c.method==='GET'));assert.equal(mock.calls.length,3);
  }finally{globalThis.fetch=original;}
 });
+
+test('closed dedicated Stripe ping with empty customer map verifies GET catalog only; runtime still rejects ping and empty maps',async()=>{
+ const original=globalThis.fetch,mock=catalog();globalThis.fetch=mock.fetch;
+ const destination='ed_61VZjIA2JGNbpTnh416V0Dr7RqHNpbTY9mEkqeEfwPR2';
+ const event={id:'evt_connection_ping',object:'v2.core.event',type:'v2.core.event_destination.ping',livemode:true,related_object:{id:destination,type:'v2.core.event_destination',url:'/v2/core/event_destinations/'+destination}};
+ const empty={...env,BILLING_ACCOUNTS:'{}'};
+ try{
+  for(let i=0;i<2;i++){
+   const response=await worker.fetch(signed(event,'/v1/stripe/meter-webhook',env.STRIPE_METER_WEBHOOK_SECRET),empty);
+   assert.equal(response.status,503);assert.deepEqual(await response.json(),{error:'billing_closed',verification:'signature_and_configured_catalog_only',eventProductVerified:false,received:false});
+  }
+  assert.equal(mock.calls.length,6);assert.ok(mock.calls.every(c=>c.method==='GET'));
+  for(const bad of [{...event,related_object:{...event.related_object,id:'ed_other'}},{...event,related_object:{...event.related_object,url:'/other'}},{...event,account:'acct_other'},{...event,livemode:false}]){
+   assert.equal((await worker.fetch(signed(bad,'/v1/stripe/meter-webhook',env.STRIPE_METER_WEBHOOK_SECRET),empty)).status,400);
+  }
+  assert.equal((await worker.fetch(signed(event,'/v1/stripe/meter-webhook','whsec_wrong_secret'),empty)).status,400);
+  assert.equal((await worker.fetch(signed(snapshot),empty)).status,400);
+  assert.equal(mock.calls.length,6);
+  assert.throws(()=>billingConfig({...empty,BILLING_ENABLED:'true',BILLING_VERIFIED:'true'}));
+  const {verifyWebhook}=await import('../src/stripe.js');
+  const request=signed(event,'/v1/stripe/meter-webhook',env.STRIPE_METER_WEBHOOK_SECRET);
+  await assert.rejects(verifyWebhook(await request.text(),request.headers.get('stripe-signature'),env.STRIPE_METER_WEBHOOK_SECRET,undefined,'thin'),/invalid_event/);
+ }finally{globalThis.fetch=original;}
+});
