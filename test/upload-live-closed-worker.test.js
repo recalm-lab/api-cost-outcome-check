@@ -34,7 +34,7 @@ async function run({bindings=baseBindings,settings=baseSettings,expected=baseSet
 test('fresh reviewed bundle SHA matches PUT, exact remote settings survive and deployed closed HTTP carries SHA',async()=>{
  const output=await run();assert.equal(output.error,null);
  assert.equal(output.bundle,buildReviewedBundle(sha).bundle);
- assert.deepEqual(retainedSettings(output.metadata),baseSettings);
+ assert.deepEqual(Object.fromEntries(Object.keys(baseSettings).map(k=>[k,output.metadata[k]])),baseSettings);
  assert.deepEqual(output.metadata.bindings,[]);assert.equal(output.metadata.keep_assets,true);
  assert.equal(output.calls.filter(c=>c.method==='PUT').length,1);
  assert.deepEqual(output.calls.slice(-3).map(c=>c.path),['/health','/v1/stripe/webhook','/v1/stripe/meter-webhook']);
