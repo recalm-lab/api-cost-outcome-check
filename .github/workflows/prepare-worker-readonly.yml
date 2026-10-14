@@ -1,0 +1,35 @@
+name: Prepare existing Worker read only
+on:
+  push:
+    branches: ['feat/deterministic-cost-check']
+    paths: ['.github/workflows/prepare-worker-readonly.yml']
+permissions:
+  contents: read
+concurrency:
+  group: recalm-existing-worker-readonly-preparation
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: github.repository == 'recalm-lab/api-cost-outcome-check' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - uses: actions/checkout@v6
+        with:
+          ref: a0c68b00c55805dc029aaa93e10885a5e6e21b27
+          path: reviewed-worker
+          persist-credentials: false
+      - name: Fresh build reviewed code without runtime credential
+        working-directory: reviewed-worker
+        run: node scripts/build-reviewed-worker.mjs a0c68b00c55805dc029aaa93e10885a5e6e21b27 "$RUNNER_TEMP/recalm-prepared-worker.js"
+      - name: Read only exact Worker settings and binding metadata
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node scripts/prepare-worker-readonly.mjs "$RUNNER_TEMP/recalm-expected-settings.json"
+      # No PUT, flag/Secret operations, deployment, lifecycle calls, or external artifacts.
