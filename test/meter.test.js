@@ -12,6 +12,30 @@ test('month boundary does not erase outstanding debt; unknown previous invoice b
  const s=storage(),now=ready(s);record(s,'old','2026-10',now);const next=ready(s,'2026-11');assert.equal(record(s,'new','2026-11',next).status,503);assert.equal(one(s,'SELECT outstanding FROM meter').outstanding,1);
  assert.equal(recordSuccess(s,'old','hmac-body',1000,'2026-11',next,eventId('old')).replay,true);assert.equal(recordSuccess(s,'old','changed',1000,'2026-11',next,eventId('old')).status,409);s.db.close();
 });
+
+test('a failure after any metering write rolls back the whole call and its retry is charged exactly once',()=>{
+ for(const failedWrite of ['INSERT INTO calls ', 'UPDATE meter SET count=', 'INSERT INTO periods ']){
+  const s=storage(),now=ready(s),original=s.sql.exec;
+  try{
+   assert.equal(record(s,'existing','2026-10',now).status,200);
+   const before={calls:[...s.sql.exec('SELECT * FROM calls ORDER BY id')],meter:[...s.sql.exec('SELECT * FROM meter')],periods:[...s.sql.exec('SELECT * FROM periods')]};
+   s.sql.exec=(sql,...args)=>{
+    const result=original(sql,...args);
+    if(sql.startsWith(failedWrite))throw new Error('synthetic-failure-after-write');
+    return result;
+   };
+   try{assert.throws(()=>record(s,'retry-after-rollback','2026-10',now+1),/synthetic-failure-after-write/);}
+   finally{s.sql.exec=original;}
+   assert.deepEqual({calls:[...s.sql.exec('SELECT * FROM calls ORDER BY id')],meter:[...s.sql.exec('SELECT * FROM meter')],periods:[...s.sql.exec('SELECT * FROM periods')]},before);
+   const retry=record(s,'retry-after-rollback','2026-10',now+2);
+   assert.deepEqual(retry,{status:200,replay:false,count:2,monthlyCount:2,outstanding:2});
+   const replay=record(s,'retry-after-rollback','2026-10',now+3);
+   assert.deepEqual(replay,{status:200,replay:true,count:2,monthlyCount:2,outstanding:2});
+   assert.equal(one(s,"SELECT COUNT(*) AS count FROM calls WHERE sendState='queued'").count,2);
+   assert.equal(one(s,'SELECT eventId FROM calls WHERE id=?','retry-after-rollback').eventId,eventId('retry-after-rollback'));
+  }finally{s.sql.exec=original;s.db.close();}
+ }
+});
 test('49 carried plus new usage stops at total 1000, without counting carry twice',()=>{
  const s=storage(),now=ready(s);for(let i=0;i<49;i++)record(s,'old'+i,'2026-10',now+i);s.sql.exec("UPDATE calls SET invoiceId='in_old'");s.sql.exec("INSERT INTO invoices VALUES ('in_old',?,?,'paid',0)",now,now+100);
  const next=ready(s,'2026-11');for(let i=0;i<951;i++)assert.equal(record(s,'new'+i,'2026-11',next+i).status,200);
