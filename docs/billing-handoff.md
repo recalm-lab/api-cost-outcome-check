@@ -45,6 +45,10 @@
 
 subscription通知が先なら同意確認ができても初期collectionHoldを維持し、/billing.active=false・/check=503。後続の支払条件を満たすCheckout確認が揃った場合だけ初期保留を解除する。手動照合・未払いinvoice・pendingInvoice・解約・請求不一致の保留は解除しない。state.activeだけで利用可能と判断せず、実HTTPのbilling/checkで検証する。
 
+初回契約IDの確定前に、保存済み申込の文書対応を確認した上でSession GETが一時失敗した場合、またはSessionのID/顧客/mode/契約対応が一致してunpaidの場合だけ、初回Checkout確認待ちとして区別する。subscription通知を再送できても、その後の正当なpaid/no_payment_required Checkout通知と既存の同意・商品・顧客照合が揃うまで新規利用を許可しない。invoice通知内の確認失敗はこの回復扱いに含めず、請求・手動照合・解約の保留を維持する。
+
+invoice_holdsは請求IDごとに未解決理由だけを保存する。既知のcollection_pendingだけを、そのinvoiceの検証済みpaid処理と同じtransactionで解消する。別invoice・照合不一致・不明な支払状態の保留は消さず、残る保留/未払い/別pending invoice/手動照合/解約を確認する。初回0円paid invoiceはCheckout通知の代わりに利用権を付与しない。異常保留の自動解除や手動解除APIは追加していない。HTTP回帰でunpaid→paid、一時GET失敗→正常、別原因保留、SQLite再開、複数請求の個別解消、初回Checkout確認前後を検証する。
+
 合成テストは版不一致/同意欠落/旧申込、保存失敗・通知再送、SQLite再オープン、Webhook前解約、応答喪失時の固定params、失効秒/UTC月境界、版切替の実HTTP、同版本文改変/表示URL不一致、通知順序と各保留を対象とする。正式本文の承認・版別登録、Dashboard表示との一致、正確な同意時刻を必要とするか、保存期間、実sandboxでの新metadata/同意フィールド検証は残る。法的有効性、本番署名・権限・CPUの検証完了を意味しない。本番設定・販売停止・権限は変更していない。
 
 ## 必要最小のrestricted permissions（作成は別承認）

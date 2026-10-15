@@ -18,6 +18,7 @@ export function initMeter(s){
   s.sql.exec('CREATE TABLE IF NOT EXISTS billing (id INTEGER PRIMARY KEY CHECK(id=1),data TEXT NOT NULL)');
   s.sql.exec('INSERT OR IGNORE INTO billing VALUES (1,?)',JSON.stringify({active:false,checkoutComplete:false,cancelRequested:false,cancelConfirmed:false,checkedUntil:0,collectionHold:true}));
   s.sql.exec('CREATE TABLE IF NOT EXISTS invoices (id TEXT PRIMARY KEY,start INTEGER NOT NULL,end INTEGER NOT NULL,status TEXT NOT NULL,paid INTEGER NOT NULL DEFAULT 0)');
+  s.sql.exec('CREATE TABLE IF NOT EXISTS invoice_holds (id TEXT PRIMARY KEY,reason TEXT NOT NULL)');
   s.sql.exec('CREATE TABLE IF NOT EXISTS actions (id TEXT PRIMARY KEY,digest TEXT NOT NULL,data TEXT NOT NULL)');
   // Append-only evidence; existing ledgers get no inferred/backfilled consent.
   s.sql.exec('CREATE TABLE IF NOT EXISTS consents (subscriptionId TEXT PRIMARY KEY,sessionId TEXT NOT NULL UNIQUE,customerId TEXT NOT NULL,termsVersion TEXT NOT NULL,termsUrl TEXT NOT NULL,sessionCreatedAt INTEGER NOT NULL,verifiedAt INTEGER NOT NULL)');
@@ -35,7 +36,7 @@ export function recordSuccess(s,key,digest,cap,period,now,eventId){
     const monthlyCount=one(s,'SELECT count FROM periods WHERE period=?',period)?.count||0;
     if(old)return old.digest===digest&&old.version==='1'?{status:200,replay:true,count:meter.count,monthlyCount,outstanding:meter.outstanding}:{status:409};
     const b=state(s);
-    if(!b.active||!b.checkoutComplete||!contractConsent(s,b)||b.cancelRequested||b.cancelConfirmed||b.collectionHold||b.requiresManual||b.pendingInvoice||b.checkedUntil<=now||b.periodStart>now||b.periodEnd<=now||one(s,"SELECT id FROM calls WHERE createdAt<? AND invoiceId IS NULL LIMIT 1",b.periodStart)||one(s,"SELECT id FROM invoices WHERE status!='paid' LIMIT 1"))return {status:503};
+    if(!b.active||!b.checkoutComplete||!contractConsent(s,b)||b.cancelRequested||b.cancelConfirmed||b.collectionHold||b.requiresManual||b.pendingInvoice||b.checkedUntil<=now||b.periodStart>now||b.periodEnd<=now||one(s,'SELECT id FROM invoice_holds LIMIT 1')||one(s,"SELECT id FROM calls WHERE createdAt<? AND invoiceId IS NULL LIMIT 1",b.periodStart)||one(s,"SELECT id FROM invoices WHERE status!='paid' LIMIT 1"))return {status:503};
     if(!/^rc_[0-9a-f]{64}$/.test(eventId||''))return {status:503};
     if(monthlyCount>=cap||meter.outstanding>=1000||meter.count>=100000)return {status:429};
     s.sql.exec("INSERT INTO calls (id,digest,version,period,createdAt,unitAmount,eventId,sendState) VALUES (?,?,'1',?,?,1,?,'queued')",key,digest,period,now,eventId);

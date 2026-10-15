@@ -3,7 +3,8 @@ import {one,state,saveState,contractConsent} from './meter.js';
 import {configuredTerms,verifyTerms} from './terms.js';
 const rows=(s,sql,...args)=>[...s.sql.exec(sql,...args)];
 const retryWindow=23*3600;
-const checkoutRecoverable=['checkout_consent_unconfirmed','checkout_mismatch','checkout_confirmation_pending','stripe_transport_error','stripe_upstream_unavailable','stripe_rate_limited','stripe_invalid_json'];
+const checkoutRecoverable=['checkout_consent_unconfirmed','checkout_mismatch','checkout_confirmation_pending','checkout_payment_pending','stripe_transport_error','stripe_upstream_unavailable','stripe_rate_limited','stripe_invalid_json'];
+const initialSessionRetryable=['stripe_transport_error','stripe_upstream_unavailable','stripe_rate_limited','stripe_invalid_json'];
 // Only the documented no-currency cash state is eligible for small-invoice carry/waiver.
 // Currency maps, including zero balances, remain blocked until lifecycle behavior is verified.
 function emptyCashBalance(customer,customerId,livemode){
@@ -106,8 +107,13 @@ export class BillingService {
   async bindSubscription(id){
     const existing=state(this.s).subscriptionId;if(existing){if(existing!==id)throw new BillingError('subscription_mismatch');return;}
     const actions=rows(this.s,"SELECT data FROM actions WHERE id LIKE 'checkout:%' LIMIT 21");if(actions.length>20)throw new BillingError('checkout_capacity');
-    for(const row of actions){const a=JSON.parse(row.data);if(!a.sessionId)continue;const session=await this.client.request('GET','/v1/checkout/sessions/'+a.sessionId);
-      if(objectId(session.subscription)===id&&objectId(session.customer)===this.customerId&&session.livemode===this.c.livemode&&session.status==='complete'&&['paid','no_payment_required'].includes(session.payment_status)){
+    for(const row of actions){
+      const a=JSON.parse(row.data);if(!a.sessionId)continue;
+      await this.actionTerms(a);
+      let session;try{session=await this.client.request('GET','/v1/checkout/sessions/'+a.sessionId);}catch(error){if(error instanceof BillingError&&initialSessionRetryable.includes(error.message))error.initialCheckoutConfirmation=true;throw error;}
+      const matches=session.id===a.sessionId&&objectId(session.subscription)===id&&objectId(session.customer)===this.customerId&&session.livemode===this.c.livemode&&session.mode==='subscription';
+      if(matches&&['open','complete'].includes(session.status)&&session.payment_status==='unpaid')throw Object.assign(new BillingError('checkout_payment_pending'),{initialCheckoutConfirmation:true});
+      if(matches&&session.status==='complete'&&['paid','no_payment_required'].includes(session.payment_status)){
         await this.confirmConsent(session,a);await this.refreshSubscription(id);return;
       }
     }throw new BillingError('checkout_not_confirmed');
@@ -117,7 +123,7 @@ export class BillingService {
     const latest=subscriptionState(sub,this.customerId,this.c,this.now()),old=state(this.s);
     if(old.subscriptionId&&old.subscriptionId!==sub.id)throw new BillingError('subscription_mismatch');
     const b={...old,...latest,customerId:this.customerId,priceId:this.c.priceId,meterId:this.c.meterId,mode:this.c.mode,stripeAccountId:this.c.accountId,checkedUntil:this.now()+300};
-    b.active=b.active&&b.checkoutComplete&&await this.verifyContract(b)&&!b.collectionHold&&!b.cancelRequested&&!b.cancelConfirmed&&!b.requiresManual;
+    b.active=b.active&&b.checkoutComplete&&await this.verifyContract(b)&&!this.hasInvoiceHolds()&&!b.collectionHold&&!b.cancelRequested&&!b.cancelConfirmed&&!b.requiresManual;
     saveState(this.s,b);return sub;
   }
   async webhook(event){
@@ -139,8 +145,9 @@ export class BillingService {
         if(session.id!==object.id||!action||objectId(session.customer)!==this.customerId||session.livemode!==this.c.livemode||session.mode!=='subscription')throw new BillingError('checkout_mismatch');
         if(['checkout.session.completed','checkout.session.async_payment_succeeded'].includes(event.type)&&session.status==='complete'&&['paid','no_payment_required'].includes(session.payment_status)){
           await this.confirmConsent(session,action);
-          const b=state(this.s),initialOrCheckout=b.holdReason===undefined||b.holdSource==='checkout'&&checkoutRecoverable.includes(b.holdReason);
-          if(!b.requiresManual&&!b.cancelRequested&&!b.pendingInvoice&&!one(this.s,"SELECT id FROM invoices WHERE status!='paid' LIMIT 1")&&initialOrCheckout)saveState(this.s,{...b,collectionHold:false,holdReason:undefined,holdSource:undefined});
+          const b={...state(this.s),checkoutVerified:true},initialOrCheckout=b.holdReason===undefined||b.holdSource==='checkout'&&checkoutRecoverable.includes(b.holdReason);
+          const release=!b.requiresManual&&!b.cancelRequested&&!b.pendingInvoice&&!this.hasInvoiceHolds()&&!one(this.s,"SELECT id FROM invoices WHERE status!='paid' LIMIT 1")&&initialOrCheckout;
+          saveState(this.s,release?{...b,collectionHold:false,holdReason:undefined,holdSource:undefined}:b);
           await this.refreshSubscription(objectId(session.subscription));
         }else if(event.type==='checkout.session.async_payment_failed')this.hold('payment_failed');
       }else if(event.type.startsWith('customer.subscription.')){
@@ -150,7 +157,26 @@ export class BillingService {
         await this.observeInvoice(invoice,true);
       }
       this.s.sql.exec('INSERT INTO webhooks VALUES (?,?)',event.id,this.now());
-    }catch(error){this.hold(error instanceof BillingError?error.message:event.type.startsWith('checkout.session.')&&!state(this.s).subscriptionId?'checkout_confirmation_pending':'billing_hold',event.type.startsWith('checkout.session.')?'checkout':'billing');throw error;}
+    }catch(error){
+      const reason=error instanceof BillingError?error.message:event.type.startsWith('checkout.session.')&&!state(this.s).subscriptionId?'checkout_confirmation_pending':'billing_hold';
+      const initialSession=event.type.startsWith('customer.subscription.')&&!state(this.s).subscriptionId&&error?.initialCheckoutConfirmation===true;
+      const invoiceEvent=event.type.startsWith('invoice.')&&/^in_[A-Za-z0-9_]{1,100}$/.test(object.id||'');
+      if(invoiceEvent)this.invoiceHold(object.id,reason);
+      this.hold(reason,event.type.startsWith('checkout.session.')||initialSession?'checkout':invoiceEvent?'invoice':'billing');throw error;
+    }
+  }
+  hasInvoiceHolds(){return !!one(this.s,'SELECT id FROM invoice_holds LIMIT 1');}
+  invoiceHold(id,reason){this.s.sql.exec("INSERT INTO invoice_holds VALUES (?,?) ON CONFLICT(id) DO UPDATE SET reason=CASE WHEN invoice_holds.reason='collection_pending' THEN excluded.reason ELSE invoice_holds.reason END",id,reason);}
+  pendingInvoiceHold(id){
+    this.invoiceHold(id,'collection_pending');const b=state(this.s);
+    saveState(this.s,{...b,active:false,collectionHold:true,...(!b.holdReason||b.holdSource==='invoice'?{holdReason:'invoice_collection_pending',holdSource:'invoice'}:{})});
+  }
+  settleInvoiceHold(id){
+    // Only a known collection wait for this invoice is automatically resolved.
+    this.s.sql.exec("DELETE FROM invoice_holds WHERE id=? AND reason='collection_pending'",id);
+    const b=state(this.s),pending=b.pendingInvoice===id?null:b.pendingInvoice,unpaid=!!one(this.s,"SELECT id FROM invoices WHERE status!='paid' LIMIT 1"),remaining=this.hasInvoiceHolds();
+    const resolved=b.holdSource==='invoice'&&!remaining&&!unpaid&&!pending;
+    saveState(this.s,{...b,pendingInvoice:pending,collectionHold:!!(b.requiresManual||b.cancelRequested||b.cancelConfirmed||remaining||unpaid||pending||!b.checkoutVerified||b.collectionHold&&!resolved),...(resolved?{holdReason:undefined,holdSource:undefined}:{})});
   }
   invoiceScope(invoice){
     const b=state(this.s),sub=objectId(invoice.parent?.subscription_details?.subscription||invoice.subscription);
@@ -171,11 +197,11 @@ export class BillingService {
     const b=state(this.s);
     if(objectId(invoice.customer)!==this.customerId||invoice.livemode!==this.c.livemode||invoice.currency!=='jpy')throw new BillingError('invoice_mismatch');
     if(invoice.status==='draft'){
-      if(trustedWebhook){await this.client.request('POST','/v1/invoices/'+invoice.id,{auto_advance:false},'pause:'+invoice.id);saveState(this.s,{...b,collectionHold:true,pendingInvoice:invoice.id,pendingSince:b.pendingInvoice===invoice.id?b.pendingSince:this.now()});}
+      if(trustedWebhook){await this.client.request('POST','/v1/invoices/'+invoice.id,{auto_advance:false},'pause:'+invoice.id);if(b.pendingInvoice&&b.pendingInvoice!==invoice.id)throw new BillingError('invoice_overlap');this.pendingInvoiceHold(invoice.id);saveState(this.s,{...state(this.s),pendingInvoice:invoice.id,pendingSince:b.pendingInvoice===invoice.id?b.pendingSince:this.now()});}
       return;
     }
     const scope=this.invoiceScope(invoice);
-    if(['void','uncollectible'].includes(invoice.status)||invoice.status!=='paid'){this.s.sql.exec('INSERT INTO invoices (id,start,end,status) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status',invoice.id,scope.start,scope.end,invoice.status);saveState(this.s,{...b,collectionHold:true,pendingInvoice:null,billingInvoice:invoice.id});if(!b.requiresManual&&b.cancelConfirmed&&invoice.status==='open'&&invoice.auto_advance===false&&invoice.amount_due>=50&&invoice.amount_due<=one(this.s,'SELECT outstanding FROM meter WHERE id=1').outstanding)await this.client.request('POST','/v1/invoices/'+invoice.id,{auto_advance:true},'resume-cancel:'+invoice.id);return;}
+    if(['void','uncollectible'].includes(invoice.status)||invoice.status!=='paid'){this.s.sql.exec('INSERT INTO invoices (id,start,end,status) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status',invoice.id,scope.start,scope.end,invoice.status);this.pendingInvoiceHold(invoice.id);saveState(this.s,{...state(this.s),pendingInvoice:b.pendingInvoice===invoice.id?null:b.pendingInvoice,billingInvoice:invoice.id});if(!b.requiresManual&&b.cancelConfirmed&&invoice.status==='open'&&invoice.auto_advance===false&&invoice.amount_due>=50&&invoice.amount_due<=one(this.s,'SELECT outstanding FROM meter WHERE id=1').outstanding)await this.client.request('POST','/v1/invoices/'+invoice.id,{auto_advance:true},'resume-cancel:'+invoice.id);return;}
     if(!trustedWebhook)return;
     if(!Number.isSafeInteger(invoice.amount_paid)||invoice.amount_paid<0||invoice.amount_remaining!==0||invoice.paid_out_of_band)throw new BillingError('invoice_payment_unknown');
     let collected=0;
@@ -196,7 +222,7 @@ export class BillingService {
       this.s.sql.exec("INSERT INTO invoices VALUES (?,?,?,'paid',?) ON CONFLICT(id) DO UPDATE SET status='paid',paid=excluded.paid",invoice.id,scope.start,scope.end,collected);
       this.s.sql.exec('UPDATE calls SET invoiceId=? WHERE createdAt>=? AND createdAt<?',invoice.id,scope.start,scope.end);
       this.s.sql.exec('UPDATE meter SET outstanding=outstanding-?,paid=paid+? WHERE id=1',delta,delta);
-      saveState(this.s,{...state(this.s),collectionHold:!!state(this.s).requiresManual,pendingInvoice:null});
+      this.settleInvoiceHold(invoice.id);
     });
     if(b.subscriptionId)await this.refreshSubscription(b.subscriptionId);
   }
@@ -270,7 +296,7 @@ export class BillingService {
   async billingStatus(){
     const meter=one(this.s,'SELECT * FROM meter WHERE id=1'),b=state(this.s);let paymentUrl=null;
     if(b.billingInvoice&&!b.requiresManual){const invoice=await this.client.request('GET','/v1/invoices/'+b.billingInvoice);this.invoiceScope(invoice);if(invoice.status==='open'&&invoice.hosted_invoice_url){const url=new URL(invoice.hosted_invoice_url);if(url.protocol==='https:'&&url.hostname==='invoice.stripe.com')paymentUrl=url.href;}}
-    return {outstandingJpy:meter.outstanding,collectedJpy:meter.paid,waivedJpy:meter.waived,active:!!(b.active&&await this.verifyContract()&&!b.collectionHold&&!b.requiresManual&&!b.cancelRequested&&b.checkedUntil>this.now()&&b.periodEnd>this.now()),billingTimezone:'UTC',cancelRequested:b.cancelRequested,hold:!!b.collectionHold,manualReconciliationRequired:!!b.requiresManual,paymentUrl};
+    return {outstandingJpy:meter.outstanding,collectedJpy:meter.paid,waivedJpy:meter.waived,active:!!(b.active&&await this.verifyContract()&&!this.hasInvoiceHolds()&&!b.collectionHold&&!b.requiresManual&&!b.cancelRequested&&b.checkedUntil>this.now()&&b.periodEnd>this.now()),billingTimezone:'UTC',cancelRequested:b.cancelRequested,hold:!!b.collectionHold,manualReconciliationRequired:!!b.requiresManual,paymentUrl};
   }
   async tick(){if(state(this.s).requiresManual)return;await this.flush();await this.finalizePending();await this.cancelAndWaive();}
   needsAlarm(){const b=state(this.s);if(b.requiresManual)return false;return !!one(this.s,"SELECT id FROM calls WHERE sendState IN ('queued','sending') LIMIT 1")||!!b.pendingInvoice||!!(b.cancelRequested&&b.subscriptionId&&!b.cancelConfirmed)||!!(b.cancelConfirmed&&!b.waiverDone&&one(this.s,'SELECT outstanding FROM meter WHERE id=1').outstanding<50);}

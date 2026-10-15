@@ -7,7 +7,7 @@ import {tmpdir} from 'node:os';
 import {createHash,createHmac} from 'node:crypto';
 import {Miniflare} from 'miniflare';
 import {billingEnv,stripeMock,webhookSecret} from './stripe-mock.js';
-import {testTerms,testTermsDocuments} from './helpers.js';
+import {testTerms,testTermsDocuments,invoice} from './helpers.js';
 import {normal} from '../scripts/fixtures.mjs';
 
 // Set only when reproducing the immutable reviewed baseline. No production clock or registry override exists.
@@ -103,6 +103,87 @@ test('review HTTP: subscription first remains held until paid Checkout confirmat
    paid=false;assert.equal((await notify(mf,'evt_order_unpaid')).status,200);assert.equal((await check(mf)).status,503);
    paid=true;assert.equal((await notify(mf,'evt_order_paid','checkout.session.async_payment_succeeded')).status,200);
    assert.equal((await billing(mf)).active,hold==='initial');assert.equal((await check(mf)).status,hold==='initial'?200:503);
+  }finally{await mf.dispose();}
+ }
+});
+
+async function initialBindingRecovery(failure){
+ for(const hold of ['initial','initial-direct','manual','invoice','cancel']){
+  const directory=await mkdtemp(join(tmpdir(),'recalm-initial-binding-')),mock=stripeMock();let sessionReady=false;
+  const provider={async fetch(request){
+   const path=new URL(request.url).pathname;
+   if(path==='/v1/invoices/in_anomaly')return Response.json({id:'in_anomaly',customer:'cus_test',livemode:false,currency:'usd',subscription:'sub_test'});
+   if(request.method==='GET'&&path==='/v1/checkout/sessions/cs_test'&&!sessionReady){
+    if(failure==='temporary-get')return Response.json({error:'synthetic_session_unavailable'},{status:503});
+    const response=await mock.fetch(request),session=await response.json();return Response.json({...session,payment_status:'unpaid'});
+   }
+   return mock.fetch(request);
+  }};
+  let mf=runtime(directory,{},provider);
+  try{
+   assert.equal((await checkout(mf)).status,200);
+   assert.equal((await notify(mf,'evt_initial_sub_pending','customer.subscription.created',{id:'sub_test',customer:'cus_test'})).status,503);
+   assert.equal((await billing(mf)).active,false);assert.equal((await billing(mf)).hold,true);assert.equal((await check(mf)).status,503);
+   await mf.dispose();mf=runtime(directory,{},provider);
+   if(hold==='manual')assert.equal((await notify(mf,'evt_initial_manual','v1.billing.meter.error_report_triggered')).status,200);
+   if(hold==='invoice')assert.equal((await notify(mf,'evt_initial_invoice','invoice.payment_failed',{id:'in_anomaly',customer:'cus_test'})).status,503);
+   if(hold==='cancel')assert.equal((await mf.dispatchFetch('https://example.test/v1/cancel',request({}))).status,202);
+   sessionReady=true;
+   if(hold==='initial'){
+    assert.equal((await notify(mf,'evt_initial_sub_pending','customer.subscription.created',{id:'sub_test',customer:'cus_test'})).status,200);
+    assert.equal((await billing(mf)).active,false);assert.equal((await check(mf)).status,503);
+   }
+   assert.equal((await notify(mf,'evt_initial_paid_checkout','checkout.session.async_payment_succeeded')).status,200);
+   assert.equal((await notify(mf,'evt_initial_paid_checkout','checkout.session.async_payment_succeeded')).status,200);
+   const status=await billing(mf),recovered=hold.startsWith('initial');assert.equal(status.active,recovered);assert.equal((await check(mf)).status,recovered?200:503);
+   if(hold==='manual')assert.equal(status.manualReconciliationRequired,true);
+   if(hold==='cancel'){assert.equal(status.cancelRequested,true);assert.equal((await checkout(mf)).status,409);}
+  }finally{await mf.dispose();await rm(directory,{recursive:true,force:true});}
+ }
+}
+test('review HTTP: initial unpaid subscription binding recovers only after valid paid Checkout; independent holds remain',()=>initialBindingRecovery('unpaid'));
+test('review HTTP: initial temporary Session GET failure recovers only after valid paid Checkout; independent holds remain',()=>initialBindingRecovery('temporary-get'));
+
+test('review HTTP: delayed initial zero invoice records payment without clearing unrelated invoice, manual or cancel holds',async()=>{
+ for(const hold of ['mismatch','unpaid-other','manual','cancel']){
+  const directory=await mkdtemp(join(tmpdir(),'recalm-invoice-hold-')),mock=stripeMock(),now=Math.floor(Date.now()/1000);
+  const zero=invoice(now-1,now,0,{id:'in_initial_zero',billing_reason:'subscription_create',created:now-1,lines:{has_more:false,data:[]}});
+  const other={...zero,id:'in_other',status:'open',amount_paid:0};
+  const provider={async fetch(request){const path=new URL(request.url).pathname;if(path==='/v1/invoices/in_initial_zero')return Response.json(zero);if(path==='/v1/invoices/in_other')return Response.json(hold==='mismatch'?{...other,currency:'usd'}:other);return mock.fetch(request);}};
+  let mf=runtime(directory,{},provider);
+  try{
+   assert.equal((await checkout(mf)).status,200);assert.equal((await notify(mf,'evt_invoice_initial_checkout')).status,200);
+   if(hold==='mismatch'||hold==='unpaid-other')assert.equal((await notify(mf,'evt_other_invoice','invoice.payment_failed',{id:'in_other',customer:'cus_test'})).status,hold==='mismatch'?503:200);
+   if(hold==='manual')assert.equal((await notify(mf,'evt_invoice_manual','v1.billing.meter.error_report_triggered')).status,200);
+   if(hold==='cancel')assert.equal((await mf.dispatchFetch('https://example.test/v1/cancel',request({}))).status,202);
+   assert.equal((await billing(mf)).active,false);assert.equal((await check(mf)).status,503);
+   await mf.dispose();mf=runtime(directory,{},provider);
+   assert.equal((await notify(mf,'evt_delayed_zero','invoice.paid',{id:'in_initial_zero',customer:'cus_test'})).status,200);
+   assert.equal((await notify(mf,'evt_delayed_zero_retry','invoice.paid',{id:'in_initial_zero',customer:'cus_test'})).status,200);
+   const status=await billing(mf);assert.equal(status.active,false);assert.equal(status.hold,true);assert.equal((await check(mf)).status,503);
+  }finally{await mf.dispose();await rm(directory,{recursive:true,force:true});}
+ }
+});
+
+test('review HTTP: paid invoices resolve only their own collection waits and cannot replace paid Checkout confirmation',async()=>{
+ for(const confirmed of [false,true]){
+  const mock=stripeMock(),now=Math.floor(Date.now()/1000);
+  const zero=id=>invoice(now-1,now,0,{id,billing_reason:'subscription_create',created:now-1,lines:{has_more:false,data:[]}});
+  const invoices={in_first:{...zero('in_first'),status:'open'},in_second:{...zero('in_second'),status:'open'}};
+  const provider={async fetch(request){const id=new URL(request.url).pathname.split('/').at(-1);return invoices[id]?Response.json(invoices[id]):mock.fetch(request);}};
+  const mf=runtime(false,{},provider);
+  try{
+   assert.equal((await checkout(mf)).status,200);
+   if(confirmed)assert.equal((await notify(mf,'evt_collection_checkout')).status,200);
+   else assert.equal((await notify(mf,'evt_collection_sub_first','customer.subscription.created',{id:'sub_test',customer:'cus_test'})).status,200);
+   for(const id of Object.keys(invoices))assert.equal((await notify(mf,'evt_open_'+id,'invoice.payment_failed',{id,customer:'cus_test'})).status,200);
+   invoices.in_first=zero('in_first');assert.equal((await notify(mf,'evt_paid_first','invoice.paid',{id:'in_first',customer:'cus_test'})).status,200);
+   assert.equal((await billing(mf)).active,false);assert.equal((await billing(mf)).hold,true);assert.equal((await check(mf)).status,503);
+   assert.equal((await notify(mf,'evt_paid_first_again','invoice.paid',{id:'in_first',customer:'cus_test'})).status,200);assert.equal((await check(mf)).status,503);
+   invoices.in_second=zero('in_second');assert.equal((await notify(mf,'evt_paid_second','invoice.paid',{id:'in_second',customer:'cus_test'})).status,200);
+   assert.equal((await billing(mf)).active,confirmed);
+   if(!confirmed){assert.equal((await check(mf)).status,503);assert.equal((await notify(mf,'evt_collection_checkout_after_paid')).status,200);}
+   assert.equal((await check(mf)).status,200);
   }finally{await mf.dispose();}
  }
 });

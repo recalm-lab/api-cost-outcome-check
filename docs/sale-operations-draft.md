@@ -15,6 +15,7 @@
 |consents|契約/Session/customer ID、同意版・本文SHA-256・参照URL、Session作成秒・初回確認秒|必須同意・accepted・版/ダイジェストmetadata一致後だけ保存。再通知で上書きしない。確認秒はクリック時刻ではない。旧証跡のハッシュを推定補完しない|
 |terms_documents|規約の版・正確な本文・SHA-256・状態・不変URL|申込前に保存し、同版の別本文・別URL・別ダイジェストを拒否。入力/結果本文とは別。現行版が変わっても保存文書を再現する。正式版登録・保存期間・削除は未承認|
 |invoices / webhooks|invoice範囲/状態/回収額、event IDと処理日時|回収額と通知の重複反映防止。Webhook本文は台帳へ保存しない|
+|invoice_holds|未解決のinvoice IDと理由|別請求のpaid通知で照合異常を忘れない。検証済みpaidは同じinvoiceの既知collection_pendingだけを解消する。異常理由を自動削除しない。保存期間・手動解除運用は未確定|
 |Worker Secret CREDENTIALS|APIキーのSHA256とlogical account、有効/無効、期限、利用cap|平文APIキーは保存しない。これはStripe customer mappingとは別|
 
 Stripe側には顧客/請求/決済情報が別に存在する。Cloudflareの標準ネットワーク・基盤メタデータも別である。入力本文を保存しない実装だけで、外部基盤全体の削除完了を証明したとは表現しない。
