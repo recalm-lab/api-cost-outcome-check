@@ -1,18 +1,18 @@
 # Recalm API Cost Check
 
-**開発版。APIの実売・顧客キー発行・決済受付は未開始です。** 承認済み料金は、成功call 1回あたり **1円（税込・JPY）**、月次後払いです。月次精算額が50円未満なら翌月へ繰り越し、解約時の未精算額が50円未満なら免除します。利用者ごとにUTC月の新規利用1,000円で停止し、繰越・未請求・請求済未払いを含む未精算総額も1,000円で停止します。49円繰越なら次月の新規利用は最大951回です。照合APIの成功回数の計量とカード決済は別で、決済・提供導線の検証は未完了です。1円ずつカード決済する実装はありません。
+**開発版。APIの実売・顧客キー発行・決済受付は未開始です。** 承認済み料金は、成功call 1回あたり **1円（税込・JPY）**、月次後払いです。月次精算額が50円未満なら翌月へ繰り越し、解約時の未精算額が50円未満なら免除します。1アカウントごとにUTC月の新規利用1,000円で停止し、繰越・未請求・請求済未払いを含む未精算総額も1,000円で停止します。49円繰越なら次月の新規利用は最大951回です。照合APIの成功回数の計量とカード決済は別で、決済・提供導線の検証は未完了です。1円ずつカード決済する実装はありません。
 
-請求明細と実行結果のJSONを、明示的なrequest IDで決定論的に照合する最小APIです。外部モデル・有料APIは呼びません。対応不明 (`unknown_attribution`)、重複疑い (`duplicate_suspected`)、失敗後のretry (`failed_retry`) を区別します。成功の定義は利用者が指定し、タスク結果を `success / failure / unknown` として申告します。HTTP 200をタスク成功の根拠にしません。
+請求明細と実行結果のJSONを、明示的なrequest IDで決定論的に照合する最小APIです。照合処理にLLM・外部モデルの呼び出しはありません。課金連携や閉鎖中の接続確認ではStripe APIを使用します。対応不明 (`unknown_attribution`)、重複疑い (`duplicate_suspected`)、失敗後のretry (`failed_retry`) を区別します。成功の定義は利用者が指定し、タスク結果を `success / failure / unknown` として申告します。HTTP 200をタスク成功の根拠にしません。
 
 ## 無料で確認する
 
 既存の[無料チェックリストと3つの合成例](skills/api-cost-outcome-check/SKILL.md)を利用できます。このskillはローカル・read-onlyの手順で、データ送信を許可しません。APIは別の任意機能で、利用には本人の明示的な入力送信許可と契約が必要です。skill内に残るUSD 49の診断案は過去の未販売仮説で、このAPIの価格ではありません。
 
-[合成デモのソース](public/index.html)は架空の3例だけをブラウザ内で処理します。実データ入力欄・アップロード・checkoutはありません。親担当が[無料Worker](https://recalm-api-cost-check.rough-sound-e8d7.workers.dev)を作成済みです（デモ配置の完了確認は別）。PC shell不要の[Dashboard貼付用単一bundle](public/dashboard-demo-worker.js)と[配置手順](docs/dashboard-publish.md)があります。ローカル表示は `npm run build:demo` の後 `python3 -m http.server 8000 --directory public`。開いた `http://localhost:8000` で例を選びます。
+[合成デモのソース](public/index.html)は架空の3例だけをブラウザ内で処理します。実データ入力欄・アップロード・checkoutはありません。[既存Worker](https://recalm-api-cost-check.rough-sound-e8d7.workers.dev)には閉鎖状態の本体を配置済みで、現在の配置・接続証跡は[本番閉鎖接続確認](docs/live-connection-2026-10-14.md)を参照してください。PC shell不要の[Dashboard貼付用単一bundle](public/dashboard-demo-worker.js)と[配置手順](docs/dashboard-publish.md)もあります。ローカル表示は `npm run build:demo` の後 `python3 -m http.server 8000 --directory public`。開いた `http://localhost:8000` で例を選びます。
 
 ## APIと入力
 
-[OpenAPI 3.1](docs/openapi.json)と[本番準備一覧](docs/production.md)、[利用条件の下書き](docs/terms-draft.md)、[決済担当への引き継ぎ](docs/billing-handoff.md)を参照してください。`POST /v1/check` は既定で503です。最小のBilling Meters連携、Hosted Checkout、必須webhook、解約・精算処理まで実装していますが、設定はすべて無効です。認証・利用権・sandbox接続・本番決済の確認前に有効化しません。
+[OpenAPI 3.1](docs/openapi.json)と[本番準備一覧](docs/production.md)、[利用条件の下書き](docs/terms-draft.md)、[決済担当への引き継ぎ](docs/billing-handoff.md)を参照してください。`POST /v1/check` は閉鎖中503です。最小のBilling Meters連携、Hosted Checkout、必須webhook、解約・精算処理まで実装しています。本番のカタログ読み取りとMeter通知の署名接続確認は一部完了していますが、販売・課金は停止中です。本番billing通知の正規署名、本番の利用・請求・決済の検証完了を意味しません。[接続証跡と未検証項目](docs/live-connection-2026-10-14.md)を確認してから、販売開始の承認を別に得ます。
 
 ```json
 {
@@ -36,9 +36,9 @@
 
 成功call = 有効な入力の照合完了後、SQLiteの成功記録を原子的に確定した1論理call。unknownや疑いが含まれる結果も有効な処理完了です。成果達成や節約の成功とは異なります。入力不備、認証拒否、409、上限超過、確定前の処理エラーは増分0。同じ利用者・同じidempotency key・同一UTF-8本文のretryは増分0、異なる有効本文は409です。空白、キー順序も本文の一部なのでretryでは元の本文をそのまま送ります。
 
-利用者単位のSQLite Durable Objectで、idempotency記録と成功回数を同じtransactionSyncに入れます。別キーの並列callも契約安全上限を越えて消費しません。上限は回数券の残高ではなく、UTC月ごとの成功回数の契約上限（最大1,000）。別途、receipt保存を制限する生涯100,000callの安全上限がありますです。UTC月別の成功回数も保存します。同じtransactionで税込1円の未精算額と永続outboxを追加し、Stripe Billing Metersへ非同期送信します。Stripe-hosted Checkoutと署名済みwebhookから利用権を確認し、請求の自動処理はStripeの機能を使います。未精算額を月替わりにリセットせず、前月請求未回収・状態不明では新規利用を止めます。
+logical account単位のSQLite Durable Objectで、idempotency記録と成功回数を同じtransactionSyncに入れます。同じaccountの複数キーは同じ台帳と上限を共有します。別キーの並列callも契約安全上限を越えて消費しません。上限は回数券の残高ではなく、UTC月ごとの成功回数の契約上限（最大1,000）。別途、receipt保存を制限する生涯100,000callの安全上限があります。UTC月別の成功回数も保存します。同じtransactionで税込1円の未精算額と永続outboxを追加し、Stripe Billing Metersへ非同期送信します。Stripe-hosted Checkoutと署名済みwebhookから利用権を確認し、請求の自動処理はStripeの機能を使います。未精算額を月替わりにリセットせず、前月請求未回収・状態不明では新規利用を止めます。
 
-本文・照合結果・平文顧客キーは永続保存しません。保存するのはidempotency key/本文のHMAC、algorithm version、成功日時・固定単価・回数・未精算額、Stripeのcustomer/subscription/invoice/event識別子、送信・精算状態、同意版とHosted Checkoutの返却URLです。webhook本文やカード・住所情報は保存しません。入力をログ出力しません。結果はretryごとに再計算します。高エントロピー顧客キーはSHA-256ハッシュだけを認証registryに登録し、期限・enabled・account・上限を設定します。キー生成・発行は別承認が必要です。
+本文・照合結果・平文顧客キーは永続保存しません。保存するのはidempotency key/本文のHMAC、algorithm version、成功日時・固定単価・回数・未精算額、Stripeのcustomer/subscription/invoice/event識別子、送信・精算状態、Hosted Checkoutの返却URL等です。全体のTERMS_VERSION照合とCheckoutでの同意要求はありますが、契約ごとの独立した同意版・同意時刻の保存は未実装です。Checkout URLは公開ログへ出しません。webhook本文やカード・住所情報は保存しません。入力をログ出力しません。結果はretryごとに再計算します。高エントロピー顧客キーはSHA-256ハッシュだけを認証registryに登録し、期限・enabled・account・上限を設定します。キー生成・発行は別承認が必要です。
 
 初版はreceiptを自動削除しません。重複排除は同じaccount namespace・HMAC秘密値・algorithm v1・receiptが維持される間だけ有効です。**永久保証ではありません。** 顧客credentialの失効後はretryも401です。解約による利用停止後は、credentialが有効な間、既存receiptの結果再取得と精算状態確認は可能で、新規計量は拒否します。削除・秘密値変更・namespace移行・旧アルゴリズム廃止時は停止して移行条件を決めます。障害復旧でreceiptを失うと二重計量の危険があるため、復旧後に自動で請求を再開してはいけません。確定後の通信切断では利用者が応答を受け取れない場合があり、同じkey/bodyの再送で回数増分0にできます。
 
@@ -59,7 +59,7 @@ npm run build:demo
 
 ## 決済導線と未精算の扱い
 
-本体は `API_ENABLED`、`BILLING_ENABLED`、本番用の`BILLING_VERIFIED`、approved price/meter/customer、restricted key、webhook secret、顧客credential/HMACなどが揃わなければfail closedです。現在は3つのflagすべてfalse。承認済みsandbox試験ではSTRIPE_MODE=testとして前2つだけtrueにし、VERIFIED=falseのまま検証できます。本番modeはVERIFIED=trueになるまで拒否します。初版は専用Stripe customerと顧客キーを承認後に手動発行する小規模の招待方式で、自動キー発行・顧客作成・price作成はありません。
+本体の利用・課金処理は `API_ENABLED`、`BILLING_ENABLED`、本番用の`BILLING_VERIFIED`、approved price/meter/customer、restricted key、webhook secret、顧客credential/HMACなどが揃わなければfail closedです。2026-10-15の `/health` 読み戻しは `stripeMode=live`、3つのflagすべてfalse、`saleActive=false`。閉鎖接続確認では空の顧客mappingを使用しました。承認済みsandbox試験ではSTRIPE_MODE=testとして前2つだけtrueにし、VERIFIED=falseのまま検証できます。本番modeの利用・課金はVERIFIED=trueになるまで拒否します。別の閉鎖検証分岐では、条件を満たす署名通知に対して設定カタログのGETだけを許し、DOへ振り分けず503を返します。受領ackや課金成功ではありません。初版は専用Stripe customerと顧客キーを承認後に手動発行する小規模の招待方式で、自動キー発行・顧客作成・price作成はありません。
 
 `POST /v1/checkout` は `{ "termsVersion": "2026-10-13" }` と顧客Bearer/Idempotency-Keyを受け、Stripe-hostedの契約・支払方法登録URLを返します。成功ページで利用権を付与せず、署名検証済みwebhookとStripeの最新objectを確認します。請求anchorは**毎月1日00:00:00 UTC（日本時間09:00）**。初月は契約成立後から同じ月末までの成功利用だけを計量します。末尾の30分はCheckout生成を停止し、翌UTC月に再試行できます。初月・更新・解約時の実sandbox検証が発売条件です。
 
