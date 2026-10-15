@@ -1,5 +1,9 @@
 # 承認済みsandbox接続 — PC設定担当への実行表
 
+**2026-10-15確認：以下は初回sandboxの履歴手順で、現在の実行指示ではない。** 公開healthはlive・3flag=false・saleActive=false、配置sourceは01e29255。新処理cb337918は未配置。現在のWorkerをtestへ戻さず、過去タグ/runも再実行しない。既存Meter新署名Ping成功の証跡は維持する。
+
+GitHubにはCLOUDFLARE_API_TOKENとRECALM_TEST_API_KEYのSecret名があるが、ローカル注入はなく、値・期限・顧客対応は未確認。旧専用accountには解約済み証跡がある。追加処理の実接続には、本番から独立したtest実行先、既存test秘密値をその場で利用できる経路、有効な専用account/credential、最新版コードと合成TERMS_DOCUMENTSの対応確認が必要。現在の許可範囲では新規作成・秘密移送・本番切替を行わず停止する。
+
 対象は**既存recalm-api-cost-checkだけ**。本番Stripe請求を有効にしない。初回は最新版branchから本体を配置する。static Dashboard bundleは実APIではなく、secretを入力してもAPIへ切り替わらない。
 
 ## 非秘密値（通常vars）
