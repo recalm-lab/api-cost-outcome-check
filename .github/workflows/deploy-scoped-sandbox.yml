@@ -60,7 +60,7 @@ jobs:
       - name: Build the pinned reviewed source before providing the existing deployment credential
         working-directory: reviewed-worker
         run: node scripts/build-reviewed-worker.mjs 4405833bef84bf6a891ef165b5fdbd106574dbd4 "$RUNNER_TEMP/recalm-isolated-reviewed.js"
-      - name: Create only the approved isolated Worker and fresh SQLite namespace with all flags false
+      - name: Create the isolated Worker privately from inception and verify closed SQLite deployment using metadata only
         working-directory: reviewed-worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
