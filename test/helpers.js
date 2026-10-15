@@ -1,7 +1,7 @@
 import {DatabaseSync} from 'node:sqlite';
 import {createHash} from 'node:crypto';
 import {initMeter,saveState} from '../src/meter.js';
-export function storage(){const db=new DatabaseSync(':memory:');const s={db,sql:{exec(sql,...params){const stmt=db.prepare(sql);return /^(SELECT|PRAGMA)/.test(sql)?stmt.all(...params):(stmt.run(...params),[]);}},transactionSync(fn){db.exec('BEGIN');try{const value=fn();db.exec('COMMIT');return value;}catch(e){db.exec('ROLLBACK');throw e;}}};initMeter(s);return s;}
+export function storage(filename=':memory:'){const db=new DatabaseSync(filename);const s={db,sql:{exec(sql,...params){const stmt=db.prepare(sql);return /^(SELECT|PRAGMA)/.test(sql)?stmt.all(...params):(stmt.run(...params),[]);}},transactionSync(fn){db.exec('BEGIN');try{const value=fn();db.exec('COMMIT');return value;}catch(e){db.exec('ROLLBACK');throw e;}}};initMeter(s);return s;}
 export const eventId=(key,account='test')=>'rc_'+createHash('sha256').update(account+':'+key).digest('hex');
 export function ready(s,period='2026-10',extra={}){const start=Math.floor(Date.parse(period+'-01T00:00:00Z')/1000),d=new Date(start*1000),end=Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,1)/1000;saveState(s,{active:true,checkoutComplete:true,cancelRequested:false,cancelConfirmed:false,collectionHold:false,checkedUntil:end,periodStart:start,periodEnd:end,subscriptionId:'sub_test',customerId:'cus_test',priceId:'price_test',meterId:'mtr_test',mode:'test',...extra});return start+100;}
 export const config={mode:'test',livemode:false,accountId:'acct_test',priceId:'price_test',meterId:'mtr_test',eventName:'recalm_api_cost_check_success_v1',base:'https://example.test',accounts:{test:{customerId:'cus_test'}}};
