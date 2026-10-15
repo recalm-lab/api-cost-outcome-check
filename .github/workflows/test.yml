@@ -8,6 +8,9 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
+        with:
+          # Immutable deployed/demo commits are fixtures for the content-only guard.
+          fetch-depth: 0
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
