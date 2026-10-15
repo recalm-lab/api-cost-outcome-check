@@ -1,0 +1,71 @@
+name: Deploy sandbox with scoped Worker API
+on:
+  push:
+    tags:
+      - 'recalm-sandbox-scoped-deploy-*'
+      - 'recalm-isolated-closed-create-20261015-v1'
+permissions:
+  contents: read
+concurrency:
+  group: recalm-existing-sandbox-worker
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.repository == 'recalm-lab/api-cost-outcome-check' && startsWith(github.ref, 'refs/tags/recalm-sandbox-scoped-deploy-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - run: npm run build:demo
+      - run: git diff --exit-code -- public
+      - name: Compile same API and SQLite DO with inline static assets
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+        run: npx --yes --cache /tmp/recalm-npm-cache wrangler@4.149.0 deploy --dry-run --config wrangler.inline.jsonc --outdir /tmp/recalm-inline-build
+      - name: Upload only existing Worker with retained secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node scripts/upload-existing-worker.mjs
+      - name: Confirm three flags remain false
+        run: node scripts/sandbox-smoke.mjs readiness
+  isolated-initial-create:
+    if: github.repository == 'recalm-lab/api-cost-outcome-check' && github.event_name == 'push' && github.ref == 'refs/tags/recalm-isolated-closed-create-20261015-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Test the approved isolated deployment driver without runtime credentials
+        run: |
+          npm ci --ignore-scripts
+          npm test
+      - uses: actions/checkout@v6
+        with:
+          ref: 4405833bef84bf6a891ef165b5fdbd106574dbd4
+          path: reviewed-worker
+          persist-credentials: false
+      - name: Build the pinned reviewed source before providing the existing deployment credential
+        working-directory: reviewed-worker
+        run: node scripts/build-reviewed-worker.mjs 4405833bef84bf6a891ef165b5fdbd106574dbd4 "$RUNNER_TEMP/recalm-isolated-reviewed.js"
+      - name: Create the isolated Worker privately from inception and verify closed SQLite deployment using metadata only
+        working-directory: reviewed-worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          RECALM_ISOLATED_CREATE_APPROVED: 'true'
+          # Owner's 2026-10-15 Free-plan dashboard evidence; not an API plan/usage inspection.
+          RECALM_NO_EXTRA_COST_CONFIRMED: 'true'
+        run: node ../scripts/create-isolated-closed-worker.mjs 4405833bef84bf6a891ef165b5fdbd106574dbd4
+      # No main registration, Secret values/operations, Stripe calls, credentials, customer or lifecycle work.

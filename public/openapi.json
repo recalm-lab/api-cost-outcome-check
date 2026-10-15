@@ -1,0 +1,1783 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Recalm API Cost Check",
+    "version": "0.3.0",
+    "description": "Development contract; not a live sales offer. One declared provider/account/time scope and owner-defined success criterion. Explicit joins only; no fraud/refund conclusions. No input persistence or external model calls. No production server URL configured. Approved commercial terms: JPY 1 tax-inclusive per success, monthly arrears, below JPY 50 carried forward, below JPY 50 waived on cancellation, monthly JPY 1000 stop. Not activated. Minimal Billing Meters integration prepared; all activation flags false. UTC first-day midnight anchor, total outstanding JPY 1000 cap, durable sender with <23h uncertain retries and manual hold afterwards. No live Checkout/credentials are configured."
+  },
+  "paths": {
+    "/v1/check": {
+      "post": {
+        "operationId": "checkCostOutcome",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,128}$"
+            },
+            "description": "Opaque client-generated identifier unique per logical call. Retry with identical UTF-8 body. Account scoped; retained while account namespace and HMAC key remain intact."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "scope": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+                    "maxLength": 64
+                  },
+                  "successCriterion": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+                    "maxLength": 64
+                  },
+                  "tasks": {
+                    "type": "array",
+                    "maxItems": 40,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+                          "maxLength": 64
+                        },
+                        "outcome": {
+                          "type": "string",
+                          "enum": [
+                            "success",
+                            "failure",
+                            "unknown"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "outcome"
+                      ]
+                    }
+                  },
+                  "attempts": {
+                    "type": "array",
+                    "maxItems": 40,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "requestId": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+                          "maxLength": 64
+                        },
+                        "taskId": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+                          "maxLength": 64
+                        },
+                        "outcome": {
+                          "type": "string",
+                          "enum": [
+                            "success",
+                            "failure",
+                            "unknown"
+                          ]
+                        },
+                        "retryOf": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+                          "maxLength": 64
+                        }
+                      },
+                      "required": [
+                        "requestId",
+                        "taskId",
+                        "outcome"
+                      ]
+                    }
+                  },
+                  "bills": {
+                    "type": "array",
+                    "maxItems": 40,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+                          "maxLength": 64
+                        },
+                        "requestId": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+                          "maxLength": 64
+                        },
+                        "amount": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 1000000000
+                        },
+                        "unit": {
+                          "type": "string",
+                          "pattern": "^(money:[A-Z]{3}:[0-6]|credits:[A-Za-z0-9_.-]{1,32}:[0-6])$",
+                          "description": "Integer smallest unit. money:USD:2 amount 20 = USD 0.20; money:JPY:0 amount 1 = JPY 1; credits:vendor:0 is a separate vendor credit unit. No conversion or currency validation."
+                        },
+                        "evidence": {
+                          "type": "string",
+                          "enum": [
+                            "confirmed",
+                            "estimated",
+                            "unknown"
+                          ]
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "usage",
+                            "topup",
+                            "balance"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "amount",
+                        "unit",
+                        "evidence",
+                        "kind"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "scope",
+                  "successCriterion",
+                  "tasks",
+                  "attempts",
+                  "bills"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Completed reconciliation and atomic usage receipt. Unknown results are valid completed calls. This does not collect payment. A replay recomputes the result without incrementing usage.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "result": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "algorithmVersion": {
+                          "const": "1"
+                        },
+                        "scope": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+                          "maxLength": 64
+                        },
+                        "successCriterion": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+                          "maxLength": 64
+                        },
+                        "successfulTasks": {
+                          "type": "integer"
+                        },
+                        "totals": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                              "unit": {
+                                "type": "string",
+                                "pattern": "^(money:[A-Z]{3}:[0-6]|credits:[A-Za-z0-9_.-]{1,32}:[0-6])$",
+                                "description": "Integer smallest unit. money:USD:2 amount 20 = USD 0.20; money:JPY:0 amount 1 = JPY 1; credits:vendor:0 is a separate vendor credit unit. No conversion or currency validation."
+                              },
+                              "evidence": {
+                                "type": "string",
+                                "enum": [
+                                  "confirmed",
+                                  "estimated",
+                                  "unknown"
+                                ]
+                              },
+                              "total": {
+                                "type": "integer"
+                              },
+                              "attributable": {
+                                "type": "integer"
+                              },
+                              "unknown": {
+                                "type": "integer"
+                              },
+                              "duplicateSuspected": {
+                                "type": "boolean"
+                              },
+                              "attributionComplete": {
+                                "type": "boolean"
+                              },
+                              "costPerSuccessfulTask": {
+                                "oneOf": [
+                                  {
+                                    "type": "null"
+                                  },
+                                  {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "properties": {
+                                      "numerator": {
+                                        "type": "integer"
+                                      },
+                                      "denominator": {
+                                        "type": "integer",
+                                        "minimum": 1
+                                      }
+                                    },
+                                    "required": [
+                                      "numerator",
+                                      "denominator"
+                                    ]
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "unit",
+                              "evidence",
+                              "total",
+                              "attributable",
+                              "unknown",
+                              "duplicateSuspected",
+                              "attributionComplete",
+                              "costPerSuccessfulTask"
+                            ]
+                          }
+                        },
+                        "findings": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                              "billId": {
+                                "type": "string",
+                                "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+                                "maxLength": 64
+                              },
+                              "attribution": {
+                                "type": "string",
+                                "enum": [
+                                  "explicit_request_id",
+                                  "unknown"
+                                ]
+                              },
+                              "taskId": {
+                                "type": "string",
+                                "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+                                "maxLength": 64
+                              },
+                              "requestId": {
+                                "type": "string",
+                                "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+                                "maxLength": 64
+                              },
+                              "flags": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "enum": [
+                                    "excluded_non_usage",
+                                    "unknown_attribution",
+                                    "duplicate_suspected",
+                                    "failed_retry",
+                                    "unknown_task_outcome"
+                                  ]
+                                }
+                              }
+                            },
+                            "required": [
+                              "billId",
+                              "attribution",
+                              "flags"
+                            ]
+                          }
+                        },
+                        "notice": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "algorithmVersion",
+                        "scope",
+                        "successCriterion",
+                        "successfulTasks",
+                        "totals",
+                        "findings",
+                        "notice"
+                      ]
+                    },
+                    "usage": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "billableCalls": {
+                          "type": "integer",
+                          "enum": [
+                            0,
+                            1
+                          ]
+                        },
+                        "replay": {
+                          "type": "boolean"
+                        },
+                        "successfulCalls": {
+                          "type": "integer"
+                        },
+                        "paymentCollected": {
+                          "const": false
+                        },
+                        "successfulCallsThisMonth": {
+                          "type": "integer",
+                          "description": "Current UTC month count, shared by all credentials for this account"
+                        },
+                        "unitPrice": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "amount": {
+                              "const": 1
+                            },
+                            "unit": {
+                              "const": "money:JPY:0"
+                            },
+                            "taxInclusive": {
+                              "const": true
+                            }
+                          },
+                          "required": [
+                            "amount",
+                            "unit",
+                            "taxInclusive"
+                          ]
+                        },
+                        "outstandingJpy": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 1000,
+                          "description": "Single local liability ledger: successful units minus verified collected funds and approved waivers. Carry is not added a second time."
+                        }
+                      },
+                      "required": [
+                        "billableCalls",
+                        "replay",
+                        "successfulCalls",
+                        "unitPrice",
+                        "paymentCollected",
+                        "successfulCallsThisMonth",
+                        "outstandingJpy"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "result",
+                    "usage"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON, schema or idempotency key; not metered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, expired, disabled or unknown credential; not metered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown route",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Unsupported method",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Same account/key used with a different byte-exact body or algorithm version; not metered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body exceeds 16384 UTF-8 bytes; not metered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Wrong content type or compressed input; not metered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "UTC monthly successful-call cap, total outstanding JPY 1000 including carry/unbilled/unpaid amounts, or receipt safety capacity reached; rejected new call is not recorded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable or billing hold. A DO commit followed by RPC/connection failure may leave usage status unknown. Do not assume free; retry the same key and identical body. Definitively rejected inputs are not recorded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "usageStatus": {
+                      "type": "string",
+                      "enum": [
+                        "unknown"
+                      ]
+                    },
+                    "retry": {
+                      "const": "same_idempotency_key_and_identical_body"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "Body read deadline of 2 seconds exceeded; not metered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "const": "timeout"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "description": "Fail closed until verified Stripe-hosted Checkout and matching active subscription/UTC periods. Uses signed lifecycle webhooks and monthly/total-debt safety caps. New calls atomically append receipt, JPY 1 liability and durable outbox. Replay computes existing v1 result without new liability, while credential/config remain valid."
+      }
+    },
+    "/v1/checkout": {
+      "post": {
+        "operationId": "createHostedCheckout",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,128}$"
+            },
+            "description": "Opaque client-generated identifier unique per logical call. Retry with identical UTF-8 body. Account scoped; retained while account namespace and HMAC key remain intact."
+          }
+        ],
+        "description": "Existing pre-provisioned dedicated customer/account only. Does not issue keys or create prices. Requires explicit accepted terms. Session success page grants no access; signed webhook confirmation is required. Metered line has no quantity and UTC anchor is first day 00:00:00. Last 30 minutes before the anchor refuse new session. New requests must name the current explicitly registered document version. Existing identical idempotent requests use archived version/body/SHA-256/URL independently of current-version changes. Cancellation stops even same-key Checkout URL replays. Expired sessions are never returned or re-posted.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "termsVersion": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+                    "description": "Current version must exist in the reviewed release registry with exact approved body, SHA-256 and immutable URL. Test mode permits explicit synthetic test-only fixtures. No real terms are currently released."
+                  }
+                },
+                "required": [
+                  "termsVersion"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "checkoutUrl": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "expiresAt": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "checkoutUrl",
+                    "expiresAt"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON, schema or idempotency key; not metered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, expired, disabled or unknown credential; not metered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown route",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Unsupported method",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Same account/key used with a different byte-exact body or algorithm version; not metered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body exceeds 16384 UTF-8 bytes; not metered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Wrong content type or compressed input; not metered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "UTC monthly successful-call cap, total outstanding JPY 1000 including carry/unbilled/unpaid amounts, or receipt safety capacity reached; rejected new call is not recorded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable or billing hold. A DO commit followed by RPC/connection failure may leave usage status unknown. Do not assume free; retry the same key and identical body. Definitively rejected inputs are not recorded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "usageStatus": {
+                      "type": "string",
+                      "enum": [
+                        "unknown"
+                      ]
+                    },
+                    "retry": {
+                      "const": "same_idempotency_key_and_identical_body"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "Body read deadline of 2 seconds exceeded; not metered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "const": "timeout"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/cancel": {
+      "post": {
+        "operationId": "cancelSubscription",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "description": "Atomically stops new billable usage immediately; queued usage is reconciled before cancelling the Stripe subscription. Final balance below JPY 50 is waived only after invoice/carry verification. Returns pending settlement, not proof of zero debt. Can remain available while new usage is disabled. A persisted Checkout application can record stop intent before the subscription ID arrives. A 202 response means usage is stopped and contract identification/settlement is still pending; it does not confirm Stripe cancellation. Late notifications cannot reopen new usage.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {},
+                "required": []
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Cancellation recorded; settlement asynchronous",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "cancelRequested": {
+                      "const": true
+                    },
+                    "usageStopped": {
+                      "const": true
+                    },
+                    "settlementPending": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "cancelRequested",
+                    "usageStopped",
+                    "settlementPending"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON, schema or idempotency key; not metered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, expired, disabled or unknown credential; not metered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown route",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Unsupported method",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Same account/key used with a different byte-exact body or algorithm version; not metered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body exceeds 16384 UTF-8 bytes; not metered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Wrong content type or compressed input; not metered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "UTC monthly successful-call cap, total outstanding JPY 1000 including carry/unbilled/unpaid amounts, or receipt safety capacity reached; rejected new call is not recorded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable or billing hold. A DO commit followed by RPC/connection failure may leave usage status unknown. Do not assume free; retry the same key and identical body. Definitively rejected inputs are not recorded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "usageStatus": {
+                      "type": "string",
+                      "enum": [
+                        "unknown"
+                      ]
+                    },
+                    "retry": {
+                      "const": "same_idempotency_key_and_identical_body"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "Body read deadline of 2 seconds exceeded; not metered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "const": "timeout"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/billing": {
+      "get": {
+        "operationId": "getBillingStatus",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "outstandingJpy": {
+                      "type": "integer"
+                    },
+                    "collectedJpy": {
+                      "type": "integer"
+                    },
+                    "waivedJpy": {
+                      "type": "integer"
+                    },
+                    "active": {
+                      "type": "boolean"
+                    },
+                    "billingTimezone": {
+                      "const": "UTC"
+                    },
+                    "cancelRequested": {
+                      "type": "boolean"
+                    },
+                    "hold": {
+                      "type": "boolean"
+                    },
+                    "manualReconciliationRequired": {
+                      "type": "boolean"
+                    },
+                    "paymentUrl": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Verified Stripe hosted invoice link for outstanding payment, when available"
+                    }
+                  },
+                  "required": [
+                    "outstandingJpy",
+                    "collectedJpy",
+                    "waivedJpy",
+                    "active",
+                    "billingTimezone",
+                    "cancelRequested",
+                    "hold",
+                    "manualReconciliationRequired",
+                    "paymentUrl"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON, schema or idempotency key; not metered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, expired, disabled or unknown credential; not metered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown route",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Unsupported method",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Same account/key used with a different byte-exact body or algorithm version; not metered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body exceeds 16384 UTF-8 bytes; not metered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Wrong content type or compressed input; not metered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "UTC monthly successful-call cap, total outstanding JPY 1000 including carry/unbilled/unpaid amounts, or receipt safety capacity reached; rejected new call is not recorded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable or billing hold. A DO commit followed by RPC/connection failure may leave usage status unknown. Do not assume free; retry the same key and identical body. Definitively rejected inputs are not recorded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "usageStatus": {
+                      "type": "string",
+                      "enum": [
+                        "unknown"
+                      ]
+                    },
+                    "retry": {
+                      "const": "same_idempotency_key_and_identical_body"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "Body read deadline of 2 seconds exceeded; not metered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "const": "timeout"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/stripe/webhook": {
+      "post": {
+        "operationId": "receiveStripeWebhook",
+        "security": [
+          {
+            "stripeSignature": []
+          }
+        ],
+        "description": "Maximum raw body 64KiB, 2 second body deadline. Requires configured mode and trusted signature. Customer IDs map to operator-configured accounts; object graph is retrieved from Stripe, no metadata-based grants. Stores event ID/time only. Required for lifecycle/collections. Snapshot destination only; thin and obsolete billing.meter.* types are rejected. Requires separate configured meter signing secret before activation.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "received": {
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "received"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON, schema or idempotency key; not metered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "Body read deadline of 2 seconds exceeded; not metered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "const": "timeout"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Webhook body exceeds 65536 bytes"
+          },
+          "503": {
+            "description": "Unavailable or billing hold. A DO commit followed by RPC/connection failure may leave usage status unknown. Do not assume free; retry the same key and identical body. Definitively rejected inputs are not recorded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "usageStatus": {
+                      "type": "string",
+                      "enum": [
+                        "unknown"
+                      ]
+                    },
+                    "retry": {
+                      "const": "same_idempotency_key_and_identical_body"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "getDeploymentState",
+        "security": [],
+        "description": "Non-secret deployment flags only; not entitlement/Stripe/DO readiness proof. saleActive remains false in this development release. Static-only bundle has no stripeMode.",
+        "responses": {
+          "200": {
+            "description": "Sandbox/preparing metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "stripeMode": {
+                      "type": "string",
+                      "enum": [
+                        "test",
+                        "live",
+                        "unconfigured"
+                      ]
+                    },
+                    "apiEnabled": {
+                      "type": "boolean"
+                    },
+                    "billingEnabled": {
+                      "type": "boolean"
+                    },
+                    "billingVerified": {
+                      "type": "boolean"
+                    },
+                    "saleActive": {
+                      "const": false
+                    }
+                  },
+                  "required": [
+                    "stripeMode",
+                    "apiEnabled",
+                    "billingEnabled",
+                    "billingVerified",
+                    "saleActive"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/stripe/meter-webhook": {
+      "post": {
+        "operationId": "receiveStripeMeterThinWebhook",
+        "security": [
+          {
+            "stripeSignature": []
+          }
+        ],
+        "description": "Dedicated thin destination and STRIPE_METER_WEBHOOK_SECRET, distinct from snapshot. Exact v1.billing.meter.error_report_triggered (matching related meter) and v1.billing.meter.no_meter_found (cannot attribute, hold all configured accounts). Valid signed notifications atomically persist event ID and manual hold; no v2 Event retrieval, no detailed error claim. Wrong destination, mode, meter or signature rejected. 200 only after every account persists hold; 503 requests retry.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "received": {
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "received"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON, schema or idempotency key; not metered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "Body read deadline of 2 seconds exceeded; not metered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "const": "timeout"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Webhook body exceeds 65536 bytes"
+          },
+          "503": {
+            "description": "Unavailable or billing hold. A DO commit followed by RPC/connection failure may leave usage status unknown. Do not assume free; retry the same key and identical body. Definitively rejected inputs are not recorded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "usageStatus": {
+                      "type": "string",
+                      "enum": [
+                        "unknown"
+                      ]
+                    },
+                    "retry": {
+                      "const": "same_idempotency_key_and_identical_body"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/terms": {
+      "get": {
+        "operationId": "getArchivedContractTerms",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "description": "Return the exact saved document and digest for the authenticated account contract, independently of the current configured version. Fails closed if evidence or bytes do not match. Does not reconstruct or backfill legacy consent.",
+        "responses": {
+          "200": {
+            "description": "Verified archived terms document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "version": {
+                      "type": "string"
+                    },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    },
+                    "body": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": [
+                        "approved",
+                        "test-only"
+                      ]
+                    },
+                    "url": {
+                      "type": "string",
+                      "format": "uri"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "sha256",
+                    "body",
+                    "status",
+                    "url"
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Missing or inconsistent archived document or operational configuration"
+          }
+        }
+      }
+    },
+    "/terms/{version}/{sha256}.html": {
+      "get": {
+        "operationId": "getRegisteredTermsDocument",
+        "security": [],
+        "description": "Exact registered document bytes at a digest-addressed immutable URL. Only reviewed approved releases in live mode, or explicit synthetic test fixtures in test mode. The mutable draft /terms.html is not used for Checkout.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sha256",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Verified document bytes",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not registered, not approved, body/digest mismatch or URL mismatch"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Separately authorized high-entropy customer credential, hash-only registry. Not issued in this release."
+      },
+      "stripeSignature": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "Stripe-Signature",
+        "description": "Raw-body HMAC SHA-256, timestamp tolerance 300 seconds; secret only in Worker secret vault"
+      }
+    }
+  }
+}

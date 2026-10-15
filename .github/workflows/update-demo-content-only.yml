@@ -1,0 +1,40 @@
+name: Update only four synthetic demo assets
+on:
+  push:
+    tags: ['recalm-demo-content-only-20261016-v1']
+permissions:
+  contents: read
+concurrency:
+  group: recalm-existing-sandbox-worker
+  cancel-in-progress: false
+jobs:
+  update:
+    if: github.repository == 'recalm-lab/api-cost-outcome-check' && github.event_name == 'push' && github.ref == 'refs/tags/recalm-demo-content-only-20261016-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - uses: actions/checkout@v6
+        with:
+          ref: 01e29255e421ede7f0e9999051d224fac92f4ac5
+          path: deployed-baseline
+          persist-credentials: false
+      - name: Rebuild exact deployed backend without credentials
+        working-directory: deployed-baseline
+        run: node scripts/build-reviewed-worker.mjs 01e29255e421ede7f0e9999051d224fac92f4ac5 "$RUNNER_TEMP/recalm-baseline.js"
+      - name: Prepare exactly reviewed static substitution without credentials
+        run: node scripts/update-demo-content-only.mjs prepare "$RUNNER_TEMP/recalm-baseline.js" "$RUNNER_TEMP/recalm-demo-candidate.js"
+      - name: Compare current content and metadata then attempt one content-only update
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          RECALM_DEMO_UPDATE_APPROVED: 'true'
+        run: node scripts/update-demo-content-only.mjs update "$RUNNER_TEMP/recalm-baseline.js" "$RUNNER_TEMP/recalm-demo-candidate.js"
+      # No Secret writes, config/PATCH, general deploy, Stripe, customer calls, or retries.

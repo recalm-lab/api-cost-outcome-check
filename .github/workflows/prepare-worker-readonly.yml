@@ -1,0 +1,35 @@
+name: Prepare existing Worker read only
+on:
+  push:
+    branches: ['feat/deterministic-cost-check']
+    paths: ['.github/workflows/prepare-worker-readonly.yml']
+permissions:
+  contents: read
+concurrency:
+  group: recalm-existing-worker-readonly-preparation
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: github.repository == 'recalm-lab/api-cost-outcome-check' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Read only exact Worker settings and binding metadata
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node scripts/prepare-worker-readonly.mjs "$RUNNER_TEMP/recalm-expected-settings.json"
+      # No PUT, flag/Secret operations, deployment, lifecycle calls, or external artifacts.
+
+# Read-only diagnostic pass identifies absent settings; it never synthesizes defaults.
+
+# Read-only verification after HTTP 400; no retry of a mutation.
+
+# Read existing version exports only; no mutation in this diagnostic pass.
+
+# Owner reported signing Secret update at 15:19 JST. GET-only metadata and public health verification.

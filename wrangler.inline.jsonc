@@ -1,0 +1,33 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "recalm-api-cost-check",
+  "main": "src/inline-worker.js",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": {
+    "enabled": false
+  },
+  "vars": {
+    "API_ENABLED": "false",
+    "BILLING_ENABLED": "false",
+    "BILLING_VERIFIED": "false",
+    "STRIPE_MODE": "test"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ACCOUNTS",
+        "class_name": "AccountMeter"
+      }
+    ]
+  },
+  "exports": {
+    "AccountMeter": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
+  "account_id": "9a2e48df6882d20c2d1c4398184215a9",
+  "keep_vars": true
+}

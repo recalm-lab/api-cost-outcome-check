@@ -1,0 +1,23 @@
+name: Test API and synthetic demo
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Immutable deployed/demo commits are fixtures for the content-only guard.
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Build reviewed upload bundle from this exact checkout
+        run: node scripts/build-reviewed-worker.mjs "$GITHUB_SHA" "$RUNNER_TEMP/recalm-worker-$GITHUB_SHA.js"
+      - run: npm test
+      - run: npm run build:demo
+      - run: git diff --exit-code -- public

@@ -1,0 +1,43 @@
+name: Configure approved live connection with sales closed
+on:
+  push:
+    tags: ['recalm-live-closed-connection-*', 'recalm-live-closed-config-only-*']
+permissions:
+  contents: read
+concurrency:
+  group: recalm-existing-sandbox-worker
+  cancel-in-progress: false
+jobs:
+  connect:
+    if: github.repository == 'recalm-lab/api-cost-outcome-check' && github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/recalm-live-closed-connection-') || startsWith(github.ref, 'refs/tags/recalm-live-closed-config-only-'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: 01e29255e421ede7f0e9999051d224fac92f4ac5
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Run all synthetic checks before providing runtime credential
+        run: npm test
+      - name: Build only the reviewed source from a clean checkout
+        run: node scripts/build-reviewed-worker.mjs 01e29255e421ede7f0e9999051d224fac92f4ac5 "$RUNNER_TEMP/recalm-live-closed-reviewed.js"
+      - name: Read exact existing closed test Worker and opaque Secret metadata
+        if: startsWith(github.ref, 'refs/tags/recalm-live-closed-connection-')
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node scripts/prepare-worker-readonly.mjs "$RUNNER_TEMP/recalm-observed-settings.json"
+      - name: Content-only upload while all test sales flags remain false
+        if: startsWith(github.ref, 'refs/tags/recalm-live-closed-connection-')
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node scripts/upload-test-closed-worker.mjs 01e29255e421ede7f0e9999051d224fac92f4ac5 "$RUNNER_TEMP/recalm-observed-settings.json"
+      - name: Change only five approved non-secret live settings, keep flags false and customer map empty
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node scripts/configure-live-closed.mjs 01e29255e421ede7f0e9999051d224fac92f4ac5
+      # No Stripe credential extraction, contracts, usage events, invoices, payment, new namespace, or activation.

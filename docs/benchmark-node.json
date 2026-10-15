@@ -1,0 +1,15 @@
+{
+  "runtime": "v24.19.0",
+  "recordsPerArray": 40,
+  "bytes": 16384,
+  "iterations": 1000,
+  "scenario": "maximum 16KiB body, 40 rows per array, retry chain of 40 attempts",
+  "cpuMs": {
+    "p50": 0.242,
+    "p95": 1.282,
+    "p99": 2.885,
+    "max": 4.902
+  },
+  "includes": "JSON parse/validate/reconcile/serialize and Node hash/HMAC",
+  "excludes": "Workers ingress, WebCrypto, DO RPC and storage; NOT evidence of deployed Workers CPU"
+}

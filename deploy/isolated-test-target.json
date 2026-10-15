@@ -1,0 +1,12 @@
+{
+  "cloudflareAccountId": "9a2e48df6882d20c2d1c4398184215a9",
+  "workerName": "recalm-api-cost-check-isolated-test",
+  "base": "https://recalm-api-cost-check-isolated-test.rough-sound-e8d7.workers.dev",
+  "stripeAccountId": "acct_1TqptzD1AvIZkMfK",
+  "priceId": "price_1UPwToD1AvIZkMfK9yFCs9xN",
+  "meterId": "mtr_test_61VZKPnRudfS37Kdz41D1AvIZkMfK1J2",
+  "eventName": "recalm_api_cost_check_success_v1",
+  "logicalAccount": "sandbox-isolated-20261015",
+  "termsVersions": ["synthetic-isolated-v1", "synthetic-isolated-v2"],
+  "excludedNamespaceId": "0b8d1c5cea78485d9d9ae6a62ed98b6f"
+}
