@@ -31,6 +31,16 @@
 - 解約受付は即時に利用を止め、outboxとStripe集計が揃ってからinvoice_now=true/prorate=falseで解約。全receipt対応とdebit balanceが一致する50円未満を同額だけ免除。50円以上は免除しない。Stripeが解約時に止める既知の未払いinvoiceの自動回収は、検証済み金額に限り再開する。
 - 認証付きbilling statusに未精算/入金/免除/保留とStripe hosted invoiceの支払リンクを返す。アプリにカード入力欄はない。
 
+## 2026-10-15 同意版保全と申込期限の実装
+
+申込時の `termsVersion` と参照URLをactionsへ固定し、同じ版をCheckout Sessionの `metadata[terms_version]` に渡す。設定の版が後で変わっても既存申込の再送・確認には保存済み版を使う。runtimeの承認版固定検査や未発効の公開termsは変更していない。
+
+利用開始前にSessionを再取得し、customer/mode/契約/完了・支払状態、`consent_collection.terms_of_service=required`、`consent.terms_of_service=accepted`、版metadata、作成/失効時刻を照合する。subscription通知が先でも同じ検査を通す。根拠は[Stripeの同意確認仕様](https://docs.stripe.com/payments/checkout/custom-components?platform=web&payment-ui=embedded-page#collect-a-terms-of-service-agreement)。契約別consentsの保存とcheckoutCompleteは同一transaction。版/URL/Session作成時刻/初回verifiedAtを保存し、再送で上書きしない。verifiedAtは受信側の初回確認時刻で、利用者の正確な同意時刻を意味しない。Session本文・カード・住所・IPは保存しない。
+
+新規利用は対応する同意証跡も必須。旧台帳は自動補完せず閉じ、既存receiptの同一再取得は追加計量しない。旧sandbox台帳も勝手に移行/削除しない。保存済みCheckout URLは失効秒以降返さず、pending申込も同じ境界で再送を止める。解約受付後は既存のcancelRequestedを維持し、遅延したCheckout/subscription通知、精算失敗、再起動でも新規利用を再開しない。
+
+合成テストは版不一致/同意欠落/旧申込、保存失敗・通知再送、SQLite再オープン、解約後通知、応答喪失時の固定params、失効秒/UTC月境界を対象とする。正式規約の版別本文保全・URLとDashboard表示の一致、正確な同意時刻を必要とするか、保存期間、実sandboxでの新metadata/同意フィールド検証は残る。法的有効性、本番署名・権限・CPUの検証完了を意味しない。本番設定・販売停止・権限は変更していない。
+
 ## 必要最小のrestricted permissions（作成は別承認）
 
 以下は**実装が使うAPI操作の完全なallowlist**。Stripe Dashboardの表示名がresourceをまとめる場合は、この操作を許可する最小のgroupだけを選ぶ。sandboxで403が出ても自動でscopeを広げず、欠けた操作を特定して親担当へ返す。

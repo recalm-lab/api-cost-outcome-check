@@ -79,6 +79,22 @@ test('workerd committed receipt survives lost caller response; cancellation stop
   assert.equal((await (await mf.dispatchFetch('https://test/v1/check',req())).json()).usage.billableCalls,0);
  }finally{await mf.dispose();}
 });
+test('workerd requires canonical consent evidence; failed notification can retry but delayed success never undoes cancellation',async()=>{
+ const mock=stripeMock();let confirmed=false;
+ const provider={async fetch(request){const response=await mock.fetch(request);if(request.method==='GET'&&new URL(request.url).pathname==='/v1/checkout/sessions/cs_test'&&!confirmed){const session=await response.json();delete session.consent;return Response.json(session);}return response;}};
+ const mf=runtime(false,{},provider);
+ try{
+  assert.equal((await mf.dispatchFetch('https://test/v1/checkout',req({termsVersion:'2026-10-13'},'synthetic-checkout-0001'))).status,200);
+  const send=async(id)=>{const t=Math.floor(Date.now()/1000),body=JSON.stringify({id,type:'checkout.session.completed',livemode:false,data:{object:{id:'cs_test',customer:'cus_test'}}}),sig=createHmac('sha256',webhookSecret).update(t+'.'+body).digest('hex');return mf.dispatchFetch('https://test/v1/stripe/webhook',{method:'POST',headers:{'stripe-signature':`t=${t},v1=${sig}`},body});};
+  assert.equal((await send('evt_canonical_consent')).status,503);assert.equal((await mf.dispatchFetch('https://test/v1/check',req())).status,503);
+  confirmed=true;assert.equal((await send('evt_canonical_consent')).status,200);assert.equal((await mf.dispatchFetch('https://test/v1/check',req())).status,200);
+  assert.equal((await mf.dispatchFetch('https://test/v1/cancel',req({}))).status,202);
+  assert.equal((await send('evt_delayed_consent')).status,200);assert.equal((await send('evt_delayed_consent')).status,200);
+  assert.equal((await mf.dispatchFetch('https://test/v1/check',req(normal,'synthetic-after-consent-cancel'))).status,503);
+  const replay=await (await mf.dispatchFetch('https://test/v1/check',req())).json();assert.equal(replay.usage.billableCalls,0);assert.equal(replay.usage.successfulCalls,1);
+ }finally{await mf.dispose();}
+});
+
 test('workerd billing and all paid routes fail closed before configuration or verified Checkout',async()=>{
  const mf=runtime(false,{BILLING_ENABLED:'false'});try{for(const path of ['check','checkout','cancel'])assert.equal((await mf.dispatchFetch('https://test/v1/'+path,req())).status,503);}finally{await mf.dispose();}
  const pending=runtime(false);try{assert.equal((await pending.dispatchFetch('https://test/v1/check',req())).status,503);assert.equal((await pending.dispatchFetch('https://test/v1/stripe/webhook',{method:'POST',headers:{'stripe-signature':'bad'},body:'{}'})).status,400);}finally{await pending.dispose();}

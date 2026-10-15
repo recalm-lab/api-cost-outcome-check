@@ -15,7 +15,7 @@ export function billingConfig(env,purpose='runtime') {
   let accounts;try{accounts=JSON.parse(env.BILLING_ACCOUNTS);}catch{throw new BillingError();}
   if(!accounts||Array.isArray(accounts)||typeof accounts!=='object'||(Object.keys(accounts).length<(purpose==='closed'?0:1)||Object.keys(accounts).length>32))throw new BillingError();
   const customers=new Set();for(const [account,c]of Object.entries(accounts)){if(!/^[A-Za-z0-9_-]{1,64}$/.test(account)||!c||Object.keys(c).some(k=>k!=='customerId')||!/^cus_[A-Za-z0-9]+$/.test(c.customerId)||customers.has(c.customerId))throw new BillingError();customers.add(c.customerId);}
-  return {mode,livemode:mode==='live',accountId:env.STRIPE_ACCOUNT_ID,priceId:env.STRIPE_PRICE_ID,meterId:env.STRIPE_METER_ID,eventName:env.STRIPE_EVENT_NAME,base:base.origin,accounts};
+  return {mode,livemode:mode==='live',accountId:env.STRIPE_ACCOUNT_ID,priceId:env.STRIPE_PRICE_ID,meterId:env.STRIPE_METER_ID,eventName:env.STRIPE_EVENT_NAME,termsVersion:env.TERMS_VERSION,base:base.origin,accounts};
 }
 // Small instance-based REST client; no SDK global keys or configurable external host.
 export class StripeClient {
