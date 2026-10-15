@@ -6,13 +6,15 @@ import {StripeClient,billingConfig,verifyWebhook,subscriptionState,BillingError}
 import {recordSuccess,one,saveState,state} from '../src/meter.js';
 import {storage,ready,eventId,config,subscription,invoice} from './helpers.js';
 const env={BILLING_ENABLED:'true',BILLING_VERIFIED:'true',STRIPE_MODE:'test',STRIPE_RESTRICTED_KEY:'rk_test_synthetic_only_not_a_real_key',STRIPE_WEBHOOK_SECRET:'whsec_synthetic_only_not_a_real_secret',STRIPE_METER_WEBHOOK_SECRET:'whsec_synthetic_meter_only_not_a_real_secret',STRIPE_ACCOUNT_ID:'acct_test',STRIPE_PRICE_ID:'price_test',STRIPE_METER_ID:'mtr_test',STRIPE_EVENT_NAME:'recalm_api_cost_check_success_v1',TERMS_VERSION:'2026-10-13',PUBLIC_BASE_URL:'https://example.test',BILLING_ACCOUNTS:JSON.stringify({test:{customerId:'cus_test'}})};
+env.TERMS_DOCUMENTS=config.termsDocuments;
 const add=(s,key,now)=>recordSuccess(s,key,'body',1000,new Date(now*1000).toISOString().slice(0,7),now,eventId(key));
 const client=handler=>({config,request:handler});
 const ack=params=>({identifier:params.identifier,event_name:config.eventName,livemode:false,payload:{stripe_customer_id:'cus_test',value:'1'}});
 const paidList=inv=>({has_more:false,data:inv.amount_paid?[{id:'inpay_test',invoice:inv.id,currency:'jpy',livemode:false,status:'paid',amount_paid:inv.amount_paid,payment:{type:'payment_intent',payment_intent:'pi_test'}}]:[]});
-test('billing config every missing field fails closed; mode, price and signing secret never fall back',()=>{
- assert.equal(billingConfig(env).mode,'test');for(const field of Object.keys(env)){const v={...env};delete v[field];assert.throws(()=>billingConfig(v),BillingError);}
+test('operational billing config fails closed without required fields; current terms are checked separately for new Checkout',()=>{
+ assert.equal(billingConfig(env).mode,'test');for(const field of Object.keys(env).filter(k=>!['TERMS_VERSION','TERMS_DOCUMENTS'].includes(k))){const v={...env};delete v[field];assert.throws(()=>billingConfig(v),BillingError);}
  assert.throws(()=>billingConfig({...env,STRIPE_MODE:'live'}));assert.throws(()=>billingConfig({...env,PUBLIC_BASE_URL:'https://example.test/bad'}));
+ assert.equal(billingConfig({...env,TERMS_VERSION:undefined,TERMS_DOCUMENTS:undefined}).mode,'test');
 });
 test('REST pins official host/version, instance key, form params and stable idempotency; sanitizes errors',async()=>{
  const calls=[];const api=new StripeClient(env,async(url,options)=>{calls.push({url,options});return Response.json({id:'ok'});});
@@ -279,7 +281,7 @@ test('failed 50 JPY invoice stays held across active next-month notification unt
  try{
   await service.webhook({id:'evt_failed50',type:'invoice.payment_failed',data:{object:{id:'in_test'}}});
   await service.webhook({id:'evt_active_next_month',type:'customer.subscription.updated',data:{object:{id:'sub_test'}}});
-  assert.equal(state(s).active,true);assert.equal(state(s).collectionHold,true);
+  assert.equal((await service.billingStatus()).active,false);assert.equal(state(s).collectionHold,true);
   assert.equal(add(s,'blocked-next-month',now).status,503);
   const replay=add(s,'failed-month-0',now);assert.equal(replay.status,200);assert.equal(replay.replay,true);
   assert.equal(one(s,'SELECT count FROM meter').count,50);assert.equal(one(s,'SELECT outstanding FROM meter').outstanding,50);

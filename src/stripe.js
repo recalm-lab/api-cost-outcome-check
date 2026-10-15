@@ -9,13 +9,13 @@ export function billingConfig(env,purpose='runtime') {
   const mode=env.STRIPE_MODE;
   if(!['test','live'].includes(mode)||!new RegExp('^rk_'+mode+'_[A-Za-z0-9_]{16,}$').test(env.STRIPE_RESTRICTED_KEY||'')||!/^whsec_[A-Za-z0-9_]{16,}$/.test(env.STRIPE_WEBHOOK_SECRET||'')||!/^whsec_[A-Za-z0-9_]{16,}$/.test(env.STRIPE_METER_WEBHOOK_SECRET||'')||env.STRIPE_METER_WEBHOOK_SECRET===env.STRIPE_WEBHOOK_SECRET)throw new BillingError();
   if(!/^acct_[A-Za-z0-9]+$/.test(env.STRIPE_ACCOUNT_ID||'')||!/^price_[A-Za-z0-9]+$/.test(env.STRIPE_PRICE_ID||'')||!/^mtr_[A-Za-z0-9_]+$/.test(env.STRIPE_METER_ID||''))throw new BillingError();
-  if(env.STRIPE_EVENT_NAME!=='recalm_api_cost_check_success_v1'||env.TERMS_VERSION!=='2026-10-13')throw new BillingError();
+  if(env.STRIPE_EVENT_NAME!=='recalm_api_cost_check_success_v1')throw new BillingError();
   let base;try{base=new URL(env.PUBLIC_BASE_URL);}catch{throw new BillingError();}
   if(base.protocol!=='https:'||base.username||base.password||base.pathname!=='/'||base.search||base.hash)throw new BillingError();
   let accounts;try{accounts=JSON.parse(env.BILLING_ACCOUNTS);}catch{throw new BillingError();}
   if(!accounts||Array.isArray(accounts)||typeof accounts!=='object'||(Object.keys(accounts).length<(purpose==='closed'?0:1)||Object.keys(accounts).length>32))throw new BillingError();
   const customers=new Set();for(const [account,c]of Object.entries(accounts)){if(!/^[A-Za-z0-9_-]{1,64}$/.test(account)||!c||Object.keys(c).some(k=>k!=='customerId')||!/^cus_[A-Za-z0-9]+$/.test(c.customerId)||customers.has(c.customerId))throw new BillingError();customers.add(c.customerId);}
-  return {mode,livemode:mode==='live',accountId:env.STRIPE_ACCOUNT_ID,priceId:env.STRIPE_PRICE_ID,meterId:env.STRIPE_METER_ID,eventName:env.STRIPE_EVENT_NAME,termsVersion:env.TERMS_VERSION,base:base.origin,accounts};
+  return {mode,livemode:mode==='live',accountId:env.STRIPE_ACCOUNT_ID,priceId:env.STRIPE_PRICE_ID,meterId:env.STRIPE_METER_ID,eventName:env.STRIPE_EVENT_NAME,termsVersion:env.TERMS_VERSION,termsDocuments:env.TERMS_DOCUMENTS,base:base.origin,accounts};
 }
 // Small instance-based REST client; no SDK global keys or configurable external host.
 export class StripeClient {

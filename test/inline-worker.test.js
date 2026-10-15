@@ -4,7 +4,7 @@ import {readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {Miniflare} from 'miniflare';
 test('scoped upload package exposes the same API/DO and static pages with no assets binding',async()=>{
- const files=['src/inline-worker.js','src/worker.js','src/reconcile.js','src/meter.js','src/stripe.js','src/billing.js','public/dashboard-demo-worker.js'];
+ const files=['src/inline-worker.js','src/worker.js','src/reconcile.js','src/meter.js','src/stripe.js','src/terms-registry.js','src/terms.js','src/billing.js','public/dashboard-demo-worker.js'];
  const modules=await Promise.all(files.map(async path=>({type:'ESModule',path:resolve(path),contents:await readFile(path,'utf8')})));
  const mf=new Miniflare({modules,compatibilityDate:'2026-07-30',durableObjects:{ACCOUNTS:{className:'AccountMeter',useSQLite:true}},bindings:{STRIPE_MODE:'test',API_ENABLED:'false',BILLING_ENABLED:'false',BILLING_VERIFIED:'false'}});
  try{

@@ -2,7 +2,7 @@
 export const one=(s,sql,...args)=>[...s.sql.exec(sql,...args)][0];
 export function state(s){return JSON.parse(one(s,'SELECT data FROM billing WHERE id=1').data);}
 export function saveState(s,value){s.sql.exec('UPDATE billing SET data=? WHERE id=1',JSON.stringify(value));}
-export function contractConsent(s,b=state(s)){return !!one(s,'SELECT subscriptionId FROM consents WHERE subscriptionId=? AND customerId=?',b.subscriptionId||'',b.customerId||'');}
+export function contractConsent(s,b=state(s)){return !!one(s,'SELECT c.subscriptionId FROM consents c JOIN terms_documents d ON d.version=c.termsVersion AND d.sha256=c.termsSha256 WHERE c.subscriptionId=? AND c.customerId=?',b.subscriptionId||'',b.customerId||'');}
 export function initMeter(s){
   s.sql.exec('CREATE TABLE IF NOT EXISTS calls (id TEXT PRIMARY KEY,digest TEXT NOT NULL,version TEXT NOT NULL,period TEXT NOT NULL,createdAt INTEGER NOT NULL,unitAmount INTEGER NOT NULL,eventId TEXT NOT NULL UNIQUE,sendState TEXT NOT NULL,firstAttempt INTEGER,attempts INTEGER NOT NULL DEFAULT 0,nextAttempt INTEGER NOT NULL DEFAULT 0,invoiceId TEXT)');
   s.sql.exec('CREATE TABLE IF NOT EXISTS meter (id INTEGER PRIMARY KEY CHECK(id=1),count INTEGER NOT NULL,outstanding INTEGER NOT NULL,paid INTEGER NOT NULL,waived INTEGER NOT NULL)');
@@ -21,6 +21,8 @@ export function initMeter(s){
   s.sql.exec('CREATE TABLE IF NOT EXISTS actions (id TEXT PRIMARY KEY,digest TEXT NOT NULL,data TEXT NOT NULL)');
   // Append-only evidence; existing ledgers get no inferred/backfilled consent.
   s.sql.exec('CREATE TABLE IF NOT EXISTS consents (subscriptionId TEXT PRIMARY KEY,sessionId TEXT NOT NULL UNIQUE,customerId TEXT NOT NULL,termsVersion TEXT NOT NULL,termsUrl TEXT NOT NULL,sessionCreatedAt INTEGER NOT NULL,verifiedAt INTEGER NOT NULL)');
+  if(![...s.sql.exec('PRAGMA table_info(consents)')].some(c=>c.name==='termsSha256'))s.sql.exec('ALTER TABLE consents ADD COLUMN termsSha256 TEXT');
+  s.sql.exec('CREATE TABLE IF NOT EXISTS terms_documents (version TEXT PRIMARY KEY,sha256 TEXT NOT NULL,body TEXT NOT NULL,status TEXT NOT NULL,url TEXT NOT NULL)');
   s.sql.exec('CREATE TABLE IF NOT EXISTS webhooks (id TEXT PRIMARY KEY,created INTEGER NOT NULL)');
   s.sql.exec('CREATE INDEX IF NOT EXISTS calls_unassigned ON calls(invoiceId,createdAt)');
   s.sql.exec('CREATE INDEX IF NOT EXISTS calls_time ON calls(createdAt)');

@@ -6,17 +6,18 @@ import {join} from 'node:path';
 import {BillingService} from '../src/billing.js';
 import {StripeClient,BillingError,nextMonth} from '../src/stripe.js';
 import {one,state,saveState,recordSuccess} from '../src/meter.js';
-import {storage,ready,config,subscription,eventId} from './helpers.js';
+import {storage,ready,config,subscription,eventId,testTerms} from './helpers.js';
 import {stripeMock,billingEnv} from './stripe-mock.js';
 
 const started=Date.parse('2026-10-13T12:00:00Z')/1000;
 const event=(id='evt_consent')=>({id,type:'checkout.session.completed',data:{object:{id:'cs_test'}}});
 function pending(s,changes={}){
- const action={status:'complete',firstAttempt:started,expiresAt:started+3600,sessionId:'cs_test',termsVersion:'test-only-v1',termsUrl:'https://example.test/terms.html',...changes};
+ const document=testTerms('test-only-v1');s.sql.exec('INSERT OR IGNORE INTO terms_documents VALUES (?,?,?,?,?)','test-only-v1',document.sha256,document.body,document.status,document.url);
+ const action={status:'complete',firstAttempt:started,expiresAt:started+3600,sessionId:'cs_test',termsVersion:'test-only-v1',termsUrl:document.url,termsSha256:document.sha256,params:{'metadata[terms_version]':'test-only-v1','metadata[terms_sha256]':document.sha256,'custom_text[terms_of_service_acceptance][message]':'[TEST]('+document.url+')'},...changes};
  s.sql.exec('INSERT INTO actions VALUES (?,?,?)','checkout:synthetic','digest',JSON.stringify(action));
  return action;
 }
-function completed(changes={}){return {id:'cs_test',customer:'cus_test',subscription:'sub_test',livemode:false,mode:'subscription',status:'complete',payment_status:'no_payment_required',created:started,expires_at:started+3600,consent_collection:{terms_of_service:'required'},consent:{terms_of_service:'accepted'},metadata:{terms_version:'test-only-v1'},...changes};}
+function completed(changes={}){return {id:'cs_test',customer:'cus_test',subscription:'sub_test',livemode:false,mode:'subscription',status:'complete',payment_status:'no_payment_required',created:started,expires_at:started+3600,consent_collection:{terms_of_service:'required'},consent:{terms_of_service:'accepted'},metadata:{terms_version:'test-only-v1',terms_sha256:testTerms('test-only-v1').sha256},...changes};}
 function serviceFor(s,session=completed(),clock=()=>started+10){return new BillingService(s,{config:{...config,termsVersion:'test-only-v2'},async request(method,path){assert.equal(method,'GET');if(path==='/v1/checkout/sessions/cs_test')return session;if(path==='/v1/subscriptions/sub_test')return subscription();throw Error('unexpected endpoint');}},'cus_test',clock);}
 
 test('consent pins original version, verifies latest session and survives duplicate notifications and SQLite reopen',async()=>{
@@ -36,7 +37,8 @@ test('consent pins original version, verifies latest session and survives duplic
 test('subscription notification arriving first uses the same consent checks before activating',async()=>{
  const s=storage();try{
   pending(s);await serviceFor(s).webhook({id:'evt_sub_first',type:'customer.subscription.created',data:{object:{id:'sub_test'}}});
-  assert.equal(state(s).active,true);assert.equal(one(s,'SELECT termsVersion FROM consents').termsVersion,'test-only-v1');
+  assert.equal((await serviceFor(s).billingStatus()).active,false);assert.equal(one(s,'SELECT termsVersion FROM consents').termsVersion,'test-only-v1');
+  await serviceFor(s).webhook(event());assert.equal((await serviceFor(s).billingStatus()).active,true);
  }finally{s.db.close();}
 });
 
@@ -69,7 +71,7 @@ test('a conflicting contract record is held without overwriting original consent
   pending(s);const service=serviceFor(s);await service.webhook(event());const evidence={...one(s,'SELECT * FROM consents')};
   const row=one(s,'SELECT * FROM actions');const action={...JSON.parse(row.data),termsVersion:'test-only-conflicting'};s.sql.exec('UPDATE actions SET data=? WHERE id=?',JSON.stringify(action),row.id);
   const changed=serviceFor(s,completed({metadata:{terms_version:action.termsVersion}}));
-  await assert.rejects(()=>changed.webhook(event('evt_conflict')),/consent_conflict/);assert.deepEqual({...one(s,'SELECT * FROM consents')},evidence);assert.equal(state(s).active,false);
+  await assert.rejects(()=>changed.webhook(event('evt_conflict')),/consent_conflict|terms_snapshot_mismatch/);assert.deepEqual({...one(s,'SELECT * FROM consents')},evidence);assert.equal(state(s).active,false);
  }finally{s.db.close();}
 });
 

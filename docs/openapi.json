@@ -630,7 +630,7 @@
             "description": "Opaque client-generated identifier unique per logical call. Retry with identical UTF-8 body. Account scoped; retained while account namespace and HMAC key remain intact."
           }
         ],
-        "description": "Existing pre-provisioned dedicated customer/account only. Does not issue keys or create prices. Requires explicit accepted terms. Session success page grants no access; signed webhook confirmation is required. Metered line has no quantity and UTC anchor is first day 00:00:00. Last 30 minutes before the anchor refuse new session.",
+        "description": "Existing pre-provisioned dedicated customer/account only. Does not issue keys or create prices. Requires explicit accepted terms. Session success page grants no access; signed webhook confirmation is required. Metered line has no quantity and UTC anchor is first day 00:00:00. Last 30 minutes before the anchor refuse new session. New requests must name the current explicitly registered document version. Existing identical idempotent requests use archived version/body/SHA-256/URL independently of current-version changes. Cancellation stops even same-key Checkout URL replays. Expired sessions are never returned or re-posted.",
         "requestBody": {
           "required": true,
           "content": {
@@ -640,7 +640,9 @@
                 "additionalProperties": false,
                 "properties": {
                   "termsVersion": {
-                    "const": "2026-10-13"
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+                    "description": "Current version must exist in the reviewed release registry with exact approved body, SHA-256 and immutable URL. Test mode permits explicit synthetic test-only fixtures. No real terms are currently released."
                   }
                 },
                 "required": [
@@ -885,7 +887,7 @@
             "bearerAuth": []
           }
         ],
-        "description": "Atomically stops new billable usage immediately; queued usage is reconciled before cancelling the Stripe subscription. Final balance below JPY 50 is waived only after invoice/carry verification. Returns pending settlement, not proof of zero debt. Can remain available while new usage is disabled.",
+        "description": "Atomically stops new billable usage immediately; queued usage is reconciled before cancelling the Stripe subscription. Final balance below JPY 50 is waived only after invoice/carry verification. Returns pending settlement, not proof of zero debt. Can remain available while new usage is disabled. A persisted Checkout application can record stop intent before the subscription ID arrives. A 202 response means usage is stopped and contract identification/settlement is still pending; it does not confirm Stripe cancellation. Late notifications cannot reopen new usage.",
         "requestBody": {
           "required": true,
           "content": {
@@ -1661,6 +1663,103 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/v1/terms": {
+      "get": {
+        "operationId": "getArchivedContractTerms",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "description": "Return the exact saved document and digest for the authenticated account contract, independently of the current configured version. Fails closed if evidence or bytes do not match. Does not reconstruct or backfill legacy consent.",
+        "responses": {
+          "200": {
+            "description": "Verified archived terms document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "version": {
+                      "type": "string"
+                    },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    },
+                    "body": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": [
+                        "approved",
+                        "test-only"
+                      ]
+                    },
+                    "url": {
+                      "type": "string",
+                      "format": "uri"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "sha256",
+                    "body",
+                    "status",
+                    "url"
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Missing or inconsistent archived document or operational configuration"
+          }
+        }
+      }
+    },
+    "/terms/{version}/{sha256}.html": {
+      "get": {
+        "operationId": "getRegisteredTermsDocument",
+        "security": [],
+        "description": "Exact registered document bytes at a digest-addressed immutable URL. Only reviewed approved releases in live mode, or explicit synthetic test fixtures in test mode. The mutable draft /terms.html is not used for Checkout.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sha256",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Verified document bytes",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not registered, not approved, body/digest mismatch or URL mismatch"
           }
         }
       }

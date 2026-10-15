@@ -33,13 +33,19 @@
 
 ## 2026-10-15 同意版保全と申込期限の実装
 
-申込時の `termsVersion` と参照URLをactionsへ固定し、同じ版をCheckout Sessionの `metadata[terms_version]` に渡す。設定の版が後で変わっても既存申込の再送・確認には保存済み版を使う。runtimeの承認版固定検査や未発効の公開termsは変更していない。
+独立レビューで4009896のHTTP経路に版切替・Webhook前解約・共通URL・請求保留解除の不足を確認し、test/review-http.test.js の5ケースを対象SHAで失敗再現した。以下は追加修正後の実装で、正式条件の承認・公開・デプロイを意味しない。
+
+現行TERMS_VERSIONは新規申込だけに適用する。既存申込は同じkey/bodyのHMACと保存済み版で再送し、既存契約の利用・解約・通知・文書取得は現行版の変更/欠落から独立させる。新規旧版申込や未登録版は拒否する。本番の文書はsrc/terms-registry.jsのレビュー対象レジストリに限定し、現在は空。環境変数から本番承認を作れない。testモードのTERMS_DOCUMENTSだけが明示した合成文書を使用できる。test-onlyやdraftを本番承認へ昇格しない。
+
+各文書はversion/body/sha256/status/urlを対応付け、SHA-256をUTF-8の正確な本文から検証する。表示先は /terms/{version}/{sha256}.html のみ。本文欠落・改変・URL不一致では新規申込を止める。申込前にterms_documentsへ版・本文・ダイジェスト・状態・URLを保存し、同版の上書きを拒否する。actionsの版/ダイジェスト/表示URLも固定し、Stripeの版/ダイジェストmetadataと一致させる。旧文書は現行設定から削除されても認証付きGET /v1/termsで保存本文を再取得・検証できる。公開済み版のレジストリentryは保持し、新版は別entryに追加する。scripts/build-terms.mjsが上書きする /terms.html は下書きプレビューだけで、Checkoutは参照しない。今回、草案の正式化や版別公開ファイル作成は行っていない。
 
 利用開始前にSessionを再取得し、customer/mode/契約/完了・支払状態、`consent_collection.terms_of_service=required`、`consent.terms_of_service=accepted`、版metadata、作成/失効時刻を照合する。subscription通知が先でも同じ検査を通す。根拠は[Stripeの同意確認仕様](https://docs.stripe.com/payments/checkout/custom-components?platform=web&payment-ui=embedded-page#collect-a-terms-of-service-agreement)。契約別consentsの保存とcheckoutCompleteは同一transaction。版/URL/Session作成時刻/初回verifiedAtを保存し、再送で上書きしない。verifiedAtは受信側の初回確認時刻で、利用者の正確な同意時刻を意味しない。Session本文・カード・住所・IPは保存しない。
 
-新規利用は対応する同意証跡も必須。旧台帳は自動補完せず閉じ、既存receiptの同一再取得は追加計量しない。旧sandbox台帳も勝手に移行/削除しない。保存済みCheckout URLは失効秒以降返さず、pending申込も同じ境界で再送を止める。解約受付後は既存のcancelRequestedを維持し、遅延したCheckout/subscription通知、精算失敗、再起動でも新規利用を再開しない。
+新規利用は同意証跡と本文検証も必須。旧台帳は本文/ハッシュを推定補完せず閉じ、既存receiptの同一再取得は追加計量しない。旧sandbox台帳も勝手に移行/削除しない。保存済みCheckout URLは失効秒以降返さず、pending申込も同じ境界で再送を止める。保存済み申込があればWebhook到着前・subscription ID未特定でも解約意思と最初の受付秒を保存する。202のusageStopped/settlementPendingは受付状態で、Stripe解約完了ではない。契約未特定では解約API操作を送らず、後続通知で照合してから精算へ進む。受付後は同一keyのCheckout URL返却も拒否し、遅延/順序逆転/再送/再起動でも新規利用を再開しない。
 
-合成テストは版不一致/同意欠落/旧申込、保存失敗・通知再送、SQLite再オープン、解約後通知、応答喪失時の固定params、失効秒/UTC月境界を対象とする。正式規約の版別本文保全・URLとDashboard表示の一致、正確な同意時刻を必要とするか、保存期間、実sandboxでの新metadata/同意フィールド検証は残る。法的有効性、本番署名・権限・CPUの検証完了を意味しない。本番設定・販売停止・権限は変更していない。
+subscription通知が先なら同意確認ができても初期collectionHoldを維持し、/billing.active=false・/check=503。後続の支払条件を満たすCheckout確認が揃った場合だけ初期保留を解除する。手動照合・未払いinvoice・pendingInvoice・解約・請求不一致の保留は解除しない。state.activeだけで利用可能と判断せず、実HTTPのbilling/checkで検証する。
+
+合成テストは版不一致/同意欠落/旧申込、保存失敗・通知再送、SQLite再オープン、Webhook前解約、応答喪失時の固定params、失効秒/UTC月境界、版切替の実HTTP、同版本文改変/表示URL不一致、通知順序と各保留を対象とする。正式本文の承認・版別登録、Dashboard表示との一致、正確な同意時刻を必要とするか、保存期間、実sandboxでの新metadata/同意フィールド検証は残る。法的有効性、本番署名・権限・CPUの検証完了を意味しない。本番設定・販売停止・権限は変更していない。
 
 ## 必要最小のrestricted permissions（作成は別承認）
 

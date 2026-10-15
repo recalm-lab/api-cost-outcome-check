@@ -3,6 +3,7 @@ import { reconcile, LIMITS, InputError } from './reconcile.js';
 import { initMeter, recordSuccess, state, saveState, one } from './meter.js';
 import { StripeClient, billingConfig, liveClosed, verifyWebhook, validateMeterEvent, BillingError, objectId } from './stripe.js';
 import { BillingService, verifyCatalog } from './billing.js';
+import {configuredTerms} from './terms.js';
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' } });
 const encoder = new TextEncoder();
 async function hash(value) {
@@ -41,10 +42,11 @@ function failure(error,ambiguous=false){
   if(error instanceof BillingError)return json({error:error.message},error.status);
   return json(ambiguous?{error:'usage_state_unknown',usageStatus:'unknown',retry:'same_idempotency_key_and_identical_body'}:{error:'unavailable'},503);
 }
-function saleConfigured(env){
+async function saleConfigured(env){
   if(env.STRIPE_MODE!=='live'||['API_ENABLED','BILLING_ENABLED','BILLING_VERIFIED'].some(k=>env[k]!=='true'))return false;
   try{
     const config=billingConfig(env);
+    await configuredTerms(config);
     if(!env.ACCOUNTS||!/^[A-Za-z0-9_-]{43,128}$/.test(env.FINGERPRINT_SECRET||''))return false;
     const registry=JSON.parse(env.CREDENTIALS);
     if(!registry||Array.isArray(registry)||typeof registry!=='object')return false;
@@ -56,13 +58,22 @@ export default {
   async fetch(request,env){
     const path=new URL(request.url).pathname;
     if(path==='/health'&&['GET','HEAD'].includes(request.method)){
-      const saleActive=saleConfigured(env);
+      const saleActive=await saleConfigured(env);
       const body={status:env.STRIPE_MODE==='test'?'sandbox':saleActive?'live_enabled':'preparing',stripeMode:['test','live'].includes(env.STRIPE_MODE)?env.STRIPE_MODE:'unconfigured',apiEnabled:env.API_ENABLED==='true',billingEnabled:env.BILLING_ENABLED==='true',billingVerified:env.BILLING_VERIFIED==='true',saleActive};
       return request.method==='HEAD'?new Response(null,{status:200,headers:{'cache-control':'no-store'}}):json(body);
     }
+    if(path.startsWith('/terms/')){
+      try{
+        if(!['GET','HEAD'].includes(request.method))return json({error:'method_not_allowed'},405);
+        const match=path.match(/^\/terms\/([A-Za-z0-9][A-Za-z0-9._-]{0,63})\/([0-9a-f]{64})\.html$/);if(!match)throw new BillingError();
+        const document=await configuredTerms({mode:env.STRIPE_MODE,base:env.PUBLIC_BASE_URL,termsDocuments:env.TERMS_DOCUMENTS},match[1]);
+        if(document.sha256!==match[2])throw new BillingError();
+        return new Response(request.method==='HEAD'?null:document.body,{headers:{'content-type':'text/html; charset=utf-8','cache-control':'public, max-age=31536000, immutable','x-content-type-options':'nosniff','content-security-policy':"default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'"}});
+      }catch{return json({error:'not_found'},404);}
+    }
     if(!path.startsWith('/v1/')){if(['GET','HEAD'].includes(request.method)&&env.ASSETS)return env.ASSETS.fetch(request);return json({error:'not_found'},404);}
-    const allowed=['/v1/check','/v1/checkout','/v1/cancel','/v1/billing','/v1/stripe/webhook','/v1/stripe/meter-webhook'];if(!allowed.includes(path))return json({error:'not_found'},404);
-    if(request.method!==(path==='/v1/billing'?'GET':'POST'))return json({error:'method_not_allowed'},405);
+    const allowed=['/v1/check','/v1/checkout','/v1/cancel','/v1/billing','/v1/terms','/v1/stripe/webhook','/v1/stripe/meter-webhook'];if(!allowed.includes(path))return json({error:'not_found'},404);
+    if(request.method!==(['/v1/billing','/v1/terms'].includes(path)?'GET':'POST'))return json({error:'method_not_allowed'},405);
     let dispatched=false;
     try{
       const closed=liveClosed(env)&&['/v1/stripe/webhook','/v1/stripe/meter-webhook'].includes(path);
@@ -98,7 +109,7 @@ export default {
         if(request.headers.get('content-type')?.split(';')[0].trim().toLowerCase()!=='application/json'||request.headers.has('content-encoding'))throw new BillingError('unsupported_media_type',415);
         body=await boundedBody(request,path==='/v1/check'?LIMITS.bytes:1024);
         if(['/v1/check','/v1/checkout'].includes(path)){const key=request.headers.get('idempotency-key');if(!key||!/^[A-Za-z0-9_-]{16,128}$/.test(key))throw new BillingError('invalid_idempotency_key',400);idem=await fingerprint(env.FINGERPRINT_SECRET,'id:'+key);}
-        if(path==='/v1/checkout'){let consent;try{consent=JSON.parse(body);}catch{throw new InputError();}if(!consent||Object.keys(consent).length!==1||consent.termsVersion!==env.TERMS_VERSION)throw new InputError();}
+        if(path==='/v1/checkout'){let consent;try{consent=JSON.parse(body);}catch{throw new InputError();}if(!consent||Array.isArray(consent)||Object.keys(consent).length!==1||typeof consent.termsVersion!=='string'||!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(consent.termsVersion))throw new InputError();}
         if(path==='/v1/cancel'){let input;try{input=JSON.parse(body);}catch{throw new InputError();}if(!input||Array.isArray(input)||typeof input!=='object'||Object.keys(input).length)throw new InputError();}
       }
       const stub=env.ACCOUNTS.get(env.ACCOUNTS.idFromName(credential.account));dispatched=true;
@@ -121,14 +132,16 @@ export class AccountMeter extends DurableObject {
     try{
       const service=this.service(request.headers.get('x-account')),path=new URL(request.url).pathname;
       if(path==='/webhook'){await service.webhook(JSON.parse(await request.text()));await this.schedule(service);return json({received:true});}
-      if(path==='/checkout'){const body=await request.text();const result=await service.checkout(request.headers.get('x-idempotency'),await fingerprint(this.env.FINGERPRINT_SECRET,'checkout:'+body));return json(result);}
+      if(path==='/checkout'){const body=await request.text();const result=await service.checkout(request.headers.get('x-idempotency'),await fingerprint(this.env.FINGERPRINT_SECRET,'checkout:'+body),JSON.parse(body).termsVersion);return json(result);}
       if(path==='/cancel'){const result=service.requestCancel();await this.schedule(service);return json(result,202);}
       if(path==='/billing')return json(await service.billingStatus());
+      if(path==='/terms')return json(await service.contractTerms());
       if(path!=='/check')return json({error:'not_found'},404);
       const text=await request.text();if(encoder.encode(text).length>LIMITS.bytes)return json({error:'too_large'},413);
       const result=reconcile(JSON.parse(text)),digest=await fingerprint(this.env.FINGERPRINT_SECRET,'v1:'+text);
       const now=Math.floor(Date.now()/1000);
       const b=state(this.storage);if(!one(this.storage,'SELECT id FROM calls WHERE id=?',request.headers.get('x-idempotency'))&&b.subscriptionId&&b.checkedUntil<=now&&!b.cancelRequested&&!b.collectionHold)await service.refreshSubscription(b.subscriptionId);
+      if(!one(this.storage,'SELECT id FROM calls WHERE id=?',request.headers.get('x-idempotency'))&&!await service.verifyContract())throw new BillingError('consent_unconfirmed');
       const receipt=recordSuccess(this.storage,request.headers.get('x-idempotency'),digest,Number(request.headers.get('x-cap')),new Date(now*1000).toISOString().slice(0,7),now,'rc_'+await fingerprint(this.env.FINGERPRINT_SECRET,'meter:'+request.headers.get('x-account')+':'+request.headers.get('x-idempotency')));
       if(receipt.status!==200)return json({error:receipt.status===409?'idempotency_conflict':receipt.status===429?'usage_limit':'billing_hold'},receipt.status);
       // Commit precedes response; RPC/connection failure can leave receipt status unknown to client.

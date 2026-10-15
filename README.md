@@ -38,7 +38,7 @@
 
 logical account単位のSQLite Durable Objectで、idempotency記録と成功回数を同じtransactionSyncに入れます。同じaccountの複数キーは同じ台帳と上限を共有します。別キーの並列callも契約安全上限を越えて消費しません。上限は回数券の残高ではなく、UTC月ごとの成功回数の契約上限（最大1,000）。別途、receipt保存を制限する生涯100,000callの安全上限があります。UTC月別の成功回数も保存します。同じtransactionで税込1円の未精算額と永続outboxを追加し、Stripe Billing Metersへ非同期送信します。Stripe-hosted Checkoutと署名済みwebhookから利用権を確認し、請求の自動処理はStripeの機能を使います。未精算額を月替わりにリセットせず、前月請求未回収・状態不明では新規利用を止めます。
 
-本文・照合結果・平文顧客キーは永続保存しません。保存するのはidempotency key/本文のHMAC、algorithm version、成功日時・固定単価・回数・未精算額、Stripeのcustomer/subscription/invoice/event識別子、送信・精算状態、Hosted Checkoutの返却URL等です。申込時のTERMS_VERSIONを固定し、再取得したStripe Sessionの必須同意・accepted・版metadataを照合後、契約別の同意版・参照URL・Session作成時刻・最初の確認時刻を独立保存します。確認時刻は利用者のクリック時刻ではありません。証跡がない旧台帳は新規利用を許可せず、架空の同意を補完しません。正式規約の版別本文保全と実接続検証は未完了です。Checkout URLは公開ログへ出しません。webhook本文やカード・住所情報は保存しません。入力をログ出力しません。結果はretryごとに再計算します。高エントロピー顧客キーはSHA-256ハッシュだけを認証registryに登録し、期限・enabled・account・上限を設定します。キー生成・発行は別承認が必要です。
+入力本文・照合結果・平文顧客キーは永続保存しません。idempotency key/入力本文のHMAC、algorithm版、成功日時・固定単価・回数・未精算額、Stripe識別子、送信・精算状態、Checkout返却URL等を保存します。規約文書は入力データと別に版別の正確な本文・SHA-256・不変URLを申込前に保存します。最新Stripe Sessionの必須同意・accepted・版/ダイジェストmetadata一致後、契約別の同意版・参照URL・Session作成時刻・初回確認時刻を独立保存します。確認時刻は利用者のクリック時刻ではありません。新規申込だけに現行版を要求し、既存申込・契約は保存済み文書で検証します。正式版レジストリは空で、草案を正式規約と扱いません。旧証跡へ本文やハッシュを推定補完しません。認証付き GET /v1/terms で契約の保存文書を再取得できます。正式版登録と実接続検証は未完了です。Checkout URLを公開ログへ出しません。webhook本文・カード・住所情報や入力を保存/ログ出力しません。結果はretryごとに再計算します。顧客キーはSHA-256ハッシュだけを認証registryに登録し、期限・enabled・account・上限を設定します。キー生成・発行は別承認が必要です。
 
 初版はreceiptを自動削除しません。重複排除は同じaccount namespace・HMAC秘密値・algorithm v1・receiptが維持される間だけ有効です。**永久保証ではありません。** 顧客credentialの失効後はretryも401です。解約による利用停止後は、credentialが有効な間、既存receiptの結果再取得と精算状態確認は可能で、新規計量は拒否します。削除・秘密値変更・namespace移行・旧アルゴリズム廃止時は停止して移行条件を決めます。障害復旧でreceiptを失うと二重計量の危険があるため、復旧後に自動で請求を再開してはいけません。確定後の通信切断では利用者が応答を受け取れない場合があり、同じkey/bodyの再送で回数増分0にできます。
 
@@ -65,7 +65,7 @@ npm run build:demo
 
 50円未満の請求繰越は、cash balanceのない専用customerに対するStripeの最小請求額処理を利用します。`invoice.paid` だけで実入金とは見なさず、InvoicePaymentのStripe支払記録を検証します。繰越額を成功済み未精算額へ重ねて足しません。draft invoiceはauto_advanceを止め、receipt送信・Stripe集計・単価/期間/数量/未精算額の一致を確認してからfinalizeします。不明なら請求も利用も保留します。
 
-`POST /v1/cancel`（本文 `{}`）は新規利用を即時停止し、未送信usageの集計を確認してからStripe契約を解約します。解約時未精算総額が50円未満なら、全receiptの請求対応とStripe debit balanceを確認して同額だけ免除します。50円以上は免除せず最終請求を精算します。`GET /v1/billing` で未精算額・回収額・免除額・保留状態、利用可能なStripe hosted invoice支払リンクを確認できます。解約受付や応答喪失は、精算完了の証明ではありません。
+`POST /v1/cancel`（本文 `{}`）は保存済み申込の段階から新規利用の停止意思を受け付け、契約ID未着でも永続化します。未送信usageの集計を確認してからStripe契約を解約します。受付後の同一キーCheckout再送は拒否し、遅延通知や再起動でも新規利用は再開しません。202は利用停止・契約確認/精算待ちであり、解約完了ではありません。解約時の未精算合計50円未満は全receiptの請求対応とStripe debit balanceを確認して同額だけ免除し、50円以上は免除せず精算します。`GET /v1/billing` で未精算額・回収額・免除額・保留状態と利用可能なStripe hosted invoice支払リンクを確認できます。解約受付や応答喪失は精算完了の証明ではありません。
 
 meter送信は安定event IDと保存済み状態で管理し、応答不明の同一送信を最初の試行から**23時間未満**だけ再試行します。それを越えた不明状態は再送せず手動照合へ保留します。これはStripeの少なくとも24時間の重複排除に対して余裕を持たせた外部送信制限で、API側のreceipt保持期間とは別です。確定後のRPC/回線障害で503になった場合は「無料確定」と解釈せず、同じkey/bodyで再取得してください。再取得は計量増分0ですが、結果の送達を保証しません。
 

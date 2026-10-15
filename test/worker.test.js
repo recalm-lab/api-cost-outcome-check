@@ -6,12 +6,14 @@ import { join, resolve } from 'node:path';
 import { createHash,createHmac } from 'node:crypto';
 import {billingEnv,stripeMock,webhookSecret} from './stripe-mock.js';
 import { Miniflare } from 'miniflare';
+import {testTermsDocuments,testTerms} from './helpers.js';
 import { normal, retry } from '../scripts/fixtures.mjs';
 const token='synthetic_test_credential_'.padEnd(50,'x');
 const token2='second_synthetic_test_credential_'.padEnd(50,'x');
 const credentials = Object.fromEntries([token,token2].map((t,i)=>[createHash('sha256').update(t).digest('hex'),{account:i?'other-account':'test-account',enabled:true,expiresAt:Date.now()+3600000,maxMonthlySuccessfulCalls:5}]));
-const modules=await Promise.all(['worker','reconcile','meter','stripe','billing'].map(async name=>({type:'ESModule',path:resolve('src/'+name+'.js'),contents:await readFile('src/'+name+'.js','utf8')})));
-function runtime(persist,bindings={},provider=stripeMock()) { return new Miniflare({name:'test-api',modules,compatibilityDate:'2026-07-30',durableObjects:{ACCOUNTS:{className:'AccountMeter',useSQLite:true}},durableObjectsPersist:persist,serviceBindings:{STRIPE_HTTP:provider.fetch},bindings:Object.fromEntries(Object.entries({...billingEnv,API_ENABLED:'true',CREDENTIALS:JSON.stringify(credentials),FINGERPRINT_SECRET:'synthetic-test-only-fingerprint-secret'.padEnd(50,'x'),...bindings}).filter(([,value])=>value!==undefined))}); }
+const modules=await Promise.all(['worker','reconcile','meter','stripe','terms-registry','terms','billing'].map(async name=>({type:'ESModule',path:resolve('src/'+name+'.js'),contents:await readFile('src/'+name+'.js','utf8')})));
+// The real release registry is empty. Synthetic approved entries exist only in this test module override.
+function runtime(persist,bindings={},provider=stripeMock()) { const runtimeModules=bindings.STRIPE_MODE==='live'?modules.map(m=>m.path.endsWith('terms-registry.js')?{...m,contents:'export const releasedTerms='+JSON.stringify(Object.fromEntries(Object.entries(testTermsDocuments).map(([v,d])=>[v,{...d,status:'approved'}])))+';'}:m):modules;return new Miniflare({name:'test-api',modules:runtimeModules,compatibilityDate:'2026-07-30',durableObjects:{ACCOUNTS:{className:'AccountMeter',useSQLite:true}},durableObjectsPersist:persist,serviceBindings:{STRIPE_HTTP:provider.fetch},bindings:Object.fromEntries(Object.entries({...billingEnv,API_ENABLED:'true',CREDENTIALS:JSON.stringify(credentials),FINGERPRINT_SECRET:'synthetic-test-only-fingerprint-secret'.padEnd(50,'x'),...bindings}).filter(([,value])=>value!==undefined))}); }
 
 const req=(body=normal,key='synthetic-call-0001',bearer=token)=>({method:'POST',headers:{authorization:'Bearer '+bearer,'content-type':'application/json','idempotency-key':key},body:typeof body==='string'?body:JSON.stringify(body)});
 async function activate(mf,bearer=token){
@@ -156,7 +158,7 @@ test('workerd renewed synthetic credential shares account receipts and cap and c
 });
 
 test('health saleActive requires live, three flags and local settings without Stripe calls or secret disclosure',async()=>{
- const live={...billingEnv,STRIPE_MODE:'live',STRIPE_RESTRICTED_KEY:'rk_live_synthetic_only_not_a_real_key',API_ENABLED:'true',BILLING_ENABLED:'true',BILLING_VERIFIED:'true'};
+ const live={...billingEnv,TERMS_DOCUMENTS:JSON.stringify(Object.fromEntries(Object.entries(testTermsDocuments).map(([v,d])=>[v,{...d,status:'approved'}]))),STRIPE_MODE:'live',STRIPE_RESTRICTED_KEY:'rk_live_synthetic_only_not_a_real_key',API_ENABLED:'true',BILLING_ENABLED:'true',BILLING_VERIFIED:'true'};
  const cases=[
   [live,true],
   ...['API_ENABLED','BILLING_ENABLED','BILLING_VERIFIED'].flatMap(key=>[[{...live,[key]:'false'},false],[{...live,[key]:undefined},false]]),

@@ -1,5 +1,6 @@
 import {BillingError,objectId, validateMeterEvent, METER_EVENTS,subscriptionState,nextMonth} from './stripe.js';
 import {one,state,saveState,contractConsent} from './meter.js';
+import {configuredTerms,verifyTerms} from './terms.js';
 const rows=(s,sql,...args)=>[...s.sql.exec(sql,...args)];
 const retryWindow=23*3600;
 // Only the documented no-currency cash state is eligible for small-invoice carry/waiver.
@@ -24,11 +25,32 @@ export class BillingService {
   constructor(storage,client,customerId,clock=()=>Math.floor(Date.now()/1000)){this.s=storage;this.client=client;this.c=client.config;this.customerId=customerId;this.now=clock;}
   hold(reason='billing_hold'){const b=state(this.s);saveState(this.s,{...b,active:false,collectionHold:true,holdReason:reason,requiresManual:b.requiresManual||['meter_delivery_unknown','meter_timestamp_expired','waiver_delivery_unknown','invoice_reconciliation_unknown','meter_error'].includes(reason)});}
   async verifyCatalog(){await verifyCatalog(this.client);}
-  async checkout(key,digest){
+  async storedTerms(version,sha256,url){
+    const document=one(this.s,'SELECT * FROM terms_documents WHERE version=?',version||'');
+    if(!document||document.sha256!==sha256||document.url!==url)throw new BillingError('terms_snapshot_mismatch');
+    await verifyTerms(document,this.c.mode);
+    if(document.url!==this.c.base+'/terms/'+encodeURIComponent(version)+'/'+sha256+'.html')throw new BillingError('terms_url_mismatch');
+    return document;
+  }
+  async actionTerms(action){
+    if(!action?.termsVersion||!action.termsSha256)throw new BillingError('checkout_consent_unconfirmed');
+    const document=await this.storedTerms(action.termsVersion,action.termsSha256,action.termsUrl);
+    if(action.params?.['metadata[terms_version]']!==action.termsVersion||action.params?.['metadata[terms_sha256]']!==action.termsSha256||!action.params?.['custom_text[terms_of_service_acceptance][message]']?.includes(']('+action.termsUrl+')'))throw new BillingError('terms_snapshot_mismatch');
+    return document;
+  }
+  async contractTerms(b=state(this.s)){
+    const consent=one(this.s,'SELECT * FROM consents WHERE subscriptionId=? AND customerId=?',b.subscriptionId||'',this.customerId);
+    if(!consent)throw new BillingError('consent_unconfirmed');
+    return this.storedTerms(consent.termsVersion,consent.termsSha256,consent.termsUrl);
+  }
+  async verifyContract(b=state(this.s)){if(!contractConsent(this.s,b))return false;await this.contractTerms(b);return true;}
+  async checkout(key,digest,requestedVersion){
     if(state(this.s).requiresManual)throw new BillingError('manual_reconciliation_required');
+    if(state(this.s).cancelRequested)throw new BillingError('existing_contract',409);
     const id='checkout:'+key,old=one(this.s,'SELECT * FROM actions WHERE id=?',id);
     let action=old?JSON.parse(old.data):null;
     if(old&&old.digest!==digest)throw new BillingError('idempotency_conflict',409);
+    if(action)await this.actionTerms(action);
     if(action?.status==='complete'){
       if(action.expiresAt<=this.now())throw new BillingError('checkout_expired',409);
       return {checkoutUrl:action.url,expiresAt:action.expiresAt};
@@ -36,7 +58,8 @@ export class BillingService {
     if(action&&this.now()-action.firstAttempt>=retryWindow)throw new BillingError('checkout_delivery_unknown');
     if(action&&action.expiresAt<=this.now())throw new BillingError('checkout_expired',409);
     if(!action){
-      if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(this.c.termsVersion||''))throw new BillingError('terms_not_configured');
+      if(requestedVersion!==undefined&&requestedVersion!==this.c.termsVersion)throw new BillingError('terms_version_mismatch',400);
+      const document=await configuredTerms(this.c);
       if(state(this.s).cancelRequested||state(this.s).subscriptionId||one(this.s,'SELECT outstanding FROM meter WHERE id=1').outstanding!==0)throw new BillingError('existing_contract',409);
       const checkoutActions=rows(this.s,"SELECT data FROM actions WHERE id LIKE 'checkout:%' LIMIT 21");if(checkoutActions.length>=20)throw new BillingError('checkout_capacity');
       if(checkoutActions.some(r=>JSON.parse(r.data).expiresAt>this.now()))throw new BillingError('checkout_pending',409);
@@ -48,9 +71,15 @@ export class BillingService {
       const anchor=nextMonth(this.now()),expiresAt=Math.min(this.now()+3600,anchor-1);if(expiresAt<this.now()+1800)throw new BillingError('checkout_window_closed');
       const suffix=key.slice(0,8).split('').map(x=>String.fromCharCode(97+(x.charCodeAt(0)%26))).join('');
       action={status:'pending',firstAttempt:this.now(),expiresAt,params:{mode:'subscription',customer:this.customerId,'line_items[0][price]':this.c.priceId,'payment_method_collection':'always','subscription_data[billing_cycle_anchor]':anchor,'subscription_data[billing_mode][type]':'classic','subscription_data[proration_behavior]':'none','consent_collection[terms_of_service]':'required','custom_text[terms_of_service_acceptance][message]':'[利用条件]('+this.c.base+'/terms.html)に同意します。税込1円/成功call、UTC暦月後払い、50円未満繰越、解約時50円未満免除、未精算額を含め1,000円停止。',success_url:this.c.base+'/checkout-result.html',cancel_url:this.c.base+'/','integration_identifier':'recalm-cost-check-'+suffix,expires_at:expiresAt}};
-      action.termsVersion=this.c.termsVersion;action.termsUrl=this.c.base+'/terms.html';action.params['metadata[terms_version]']=action.termsVersion;
-      saveState(this.s,{...state(this.s),customerId:this.customerId,priceId:this.c.priceId,meterId:this.c.meterId,mode:this.c.mode,stripeAccountId:this.c.accountId});
-      this.s.sql.exec('INSERT INTO actions VALUES (?,?,?)',id,digest,JSON.stringify(action));
+      action.termsVersion=document.version;action.termsUrl=document.url;action.termsSha256=document.sha256;action.params['metadata[terms_version]']=action.termsVersion;action.params['metadata[terms_sha256]']=action.termsSha256;
+      action.params['custom_text[terms_of_service_acceptance][message]']=action.params['custom_text[terms_of_service_acceptance][message]'].replace(this.c.base+'/terms.html',document.url);
+      this.s.transactionSync(()=>{
+        const oldDocument=one(this.s,'SELECT * FROM terms_documents WHERE version=?',document.version);
+        if(oldDocument&&(oldDocument.sha256!==document.sha256||oldDocument.body!==document.body||oldDocument.url!==document.url||oldDocument.status!==document.status))throw new BillingError('terms_document_conflict');
+        if(!oldDocument)this.s.sql.exec('INSERT INTO terms_documents VALUES (?,?,?,?,?)',document.version,document.sha256,document.body,document.status,document.url);
+        saveState(this.s,{...state(this.s),customerId:this.customerId,priceId:this.c.priceId,meterId:this.c.meterId,mode:this.c.mode,stripeAccountId:this.c.accountId});
+        this.s.sql.exec('INSERT INTO actions VALUES (?,?,?)',id,digest,JSON.stringify(action));
+      });
     }
     const session=await this.client.request('POST','/v1/checkout/sessions',action.params,id);
     if(session.livemode!==this.c.livemode||objectId(session.customer)!==this.customerId||session.mode!=='subscription'||!/^cs_[A-Za-z0-9_]+$/.test(session.id))throw new BillingError('checkout_mismatch');
@@ -58,14 +87,15 @@ export class BillingService {
     action={...action,status:'complete',sessionId:session.id,url:session.url};this.s.sql.exec('UPDATE actions SET data=? WHERE id=?',JSON.stringify(action),id);
     return {checkoutUrl:action.url,expiresAt:action.expiresAt};
   }
-  confirmConsent(session,action){
+  async confirmConsent(session,action){
+    await this.actionTerms(action);
     const subscriptionId=objectId(session.subscription);
-    if(!action?.termsVersion||action.sessionId!==session.id||!/^sub_[A-Za-z0-9_]{1,100}$/.test(subscriptionId||'')||session.mode!=='subscription'||objectId(session.customer)!==this.customerId||session.livemode!==this.c.livemode||session.status!=='complete'||!['paid','no_payment_required'].includes(session.payment_status)||session.consent_collection?.terms_of_service!=='required'||session.consent?.terms_of_service!=='accepted'||session.metadata?.terms_version!==action.termsVersion||!Number.isSafeInteger(session.created)||session.created<action.firstAttempt||session.created>=action.expiresAt||session.created>this.now()||session.expires_at!==action.expiresAt)throw new BillingError('checkout_consent_unconfirmed');
+    if(action.sessionId!==session.id||!/^sub_[A-Za-z0-9_]{1,100}$/.test(subscriptionId||'')||session.mode!=='subscription'||objectId(session.customer)!==this.customerId||session.livemode!==this.c.livemode||session.status!=='complete'||!['paid','no_payment_required'].includes(session.payment_status)||session.consent_collection?.terms_of_service!=='required'||session.consent?.terms_of_service!=='accepted'||session.metadata?.terms_version!==action.termsVersion||session.metadata?.terms_sha256!==action.termsSha256||!Number.isSafeInteger(session.created)||session.created<action.firstAttempt||session.created>=action.expiresAt||session.created>this.now()||session.expires_at!==action.expiresAt)throw new BillingError('checkout_consent_unconfirmed');
     // verifiedAt is our first observation, never a claimed customer click timestamp.
     this.s.transactionSync(()=>{
       const old=one(this.s,'SELECT * FROM consents WHERE subscriptionId=? OR sessionId=?',subscriptionId,session.id);
-      if(old&&(old.subscriptionId!==subscriptionId||old.sessionId!==session.id||old.customerId!==this.customerId||old.termsVersion!==action.termsVersion||old.termsUrl!==action.termsUrl||old.sessionCreatedAt!==session.created))throw new BillingError('consent_conflict');
-      if(!old)this.s.sql.exec('INSERT INTO consents VALUES (?,?,?,?,?,?,?)',subscriptionId,session.id,this.customerId,action.termsVersion,action.termsUrl,session.created,this.now());
+      if(old&&(old.subscriptionId!==subscriptionId||old.sessionId!==session.id||old.customerId!==this.customerId||old.termsVersion!==action.termsVersion||old.termsSha256!==action.termsSha256||old.termsUrl!==action.termsUrl||old.sessionCreatedAt!==session.created))throw new BillingError('consent_conflict');
+      if(!old)this.s.sql.exec('INSERT INTO consents VALUES (?,?,?,?,?,?,?,?)',subscriptionId,session.id,this.customerId,action.termsVersion,action.termsUrl,session.created,this.now(),action.termsSha256);
       saveState(this.s,{...state(this.s),checkoutComplete:true});
     });
   }
@@ -74,7 +104,7 @@ export class BillingService {
     const actions=rows(this.s,"SELECT data FROM actions WHERE id LIKE 'checkout:%' LIMIT 21");if(actions.length>20)throw new BillingError('checkout_capacity');
     for(const row of actions){const a=JSON.parse(row.data);if(!a.sessionId)continue;const session=await this.client.request('GET','/v1/checkout/sessions/'+a.sessionId);
       if(objectId(session.subscription)===id&&objectId(session.customer)===this.customerId&&session.livemode===this.c.livemode&&session.status==='complete'&&['paid','no_payment_required'].includes(session.payment_status)){
-        this.confirmConsent(session,a);await this.refreshSubscription(id);return;
+        await this.confirmConsent(session,a);await this.refreshSubscription(id);return;
       }
     }throw new BillingError('checkout_not_confirmed');
   }
@@ -83,7 +113,7 @@ export class BillingService {
     const latest=subscriptionState(sub,this.customerId,this.c,this.now()),old=state(this.s);
     if(old.subscriptionId&&old.subscriptionId!==sub.id)throw new BillingError('subscription_mismatch');
     const b={...old,...latest,customerId:this.customerId,priceId:this.c.priceId,meterId:this.c.meterId,mode:this.c.mode,stripeAccountId:this.c.accountId,checkedUntil:this.now()+300};
-    b.active=b.active&&b.checkoutComplete&&contractConsent(this.s,b)&&!b.cancelRequested&&!b.cancelConfirmed&&!b.requiresManual;
+    b.active=b.active&&b.checkoutComplete&&await this.verifyContract(b)&&!b.collectionHold&&!b.cancelRequested&&!b.cancelConfirmed&&!b.requiresManual;
     saveState(this.s,b);return sub;
   }
   async webhook(event){
@@ -104,7 +134,10 @@ export class BillingService {
         const action=rows(this.s,"SELECT data FROM actions WHERE id LIKE 'checkout:%'").map(r=>JSON.parse(r.data)).find(a=>a.sessionId===session.id);
         if(session.id!==object.id||!action||objectId(session.customer)!==this.customerId||session.livemode!==this.c.livemode||session.mode!=='subscription')throw new BillingError('checkout_mismatch');
         if(['checkout.session.completed','checkout.session.async_payment_succeeded'].includes(event.type)&&session.status==='complete'&&['paid','no_payment_required'].includes(session.payment_status)){
-          this.confirmConsent(session,action);saveState(this.s,{...state(this.s),collectionHold:!!state(this.s).requiresManual});await this.refreshSubscription(objectId(session.subscription));
+          await this.confirmConsent(session,action);
+          const b=state(this.s),recoverable=[undefined,'checkout_consent_unconfirmed','checkout_mismatch','checkout_confirmation_pending','stripe_transport_error','stripe_upstream_unavailable','stripe_rate_limited','stripe_invalid_json'];
+          if(!b.requiresManual&&!b.cancelRequested&&!b.pendingInvoice&&!one(this.s,"SELECT id FROM invoices WHERE status!='paid' LIMIT 1")&&recoverable.includes(b.holdReason))saveState(this.s,{...b,collectionHold:false,holdReason:undefined});
+          await this.refreshSubscription(objectId(session.subscription));
         }else if(event.type==='checkout.session.async_payment_failed')this.hold('payment_failed');
       }else if(event.type.startsWith('customer.subscription.')){
         await this.bindSubscription(object.id);await this.refreshSubscription(object.id);
@@ -113,7 +146,7 @@ export class BillingService {
         await this.observeInvoice(invoice,true);
       }
       this.s.sql.exec('INSERT INTO webhooks VALUES (?,?)',event.id,this.now());
-    }catch(error){this.hold(error instanceof BillingError?error.message:'billing_hold');throw error;}
+    }catch(error){this.hold(error instanceof BillingError?error.message:event.type.startsWith('checkout.session.')&&!state(this.s).subscriptionId?'checkout_confirmation_pending':'billing_hold');throw error;}
   }
   invoiceScope(invoice){
     const b=state(this.s),sub=objectId(invoice.parent?.subscription_details?.subscription||invoice.subscription);
@@ -199,10 +232,10 @@ export class BillingService {
     if(scope.expected>0&&!await this.aggregateMatches(scope.start,scope.end,scope.expected))return;
     await this.client.request('POST','/v1/invoices/'+invoice.id+'/finalize',{auto_advance:true},'finalize:'+invoice.id);
   }
-  requestCancel(){this.s.transactionSync(()=>{const b=state(this.s);if(!b.subscriptionId)throw new BillingError('no_contract',409);saveState(this.s,{...b,cancelRequested:true,active:false,collectionHold:true});});return {cancelRequested:true,usageStopped:true,settlementPending:true};}
+  requestCancel(){this.s.transactionSync(()=>{const b=state(this.s);if(!b.subscriptionId&&!one(this.s,"SELECT id FROM actions WHERE id LIKE 'checkout:%' LIMIT 1"))throw new BillingError('no_contract',409);saveState(this.s,{...b,cancelRequested:true,cancelRequestedAt:b.cancelRequestedAt??this.now(),active:false,collectionHold:true});});return {cancelRequested:true,usageStopped:true,settlementPending:true};}
   async cancelAndWaive(){
     if(state(this.s).requiresManual)return;
-    let b=state(this.s);if(!b.cancelRequested)return;
+    let b=state(this.s);if(!b.cancelRequested||!b.subscriptionId)return;
     if(one(this.s,"SELECT id FROM calls WHERE sendState!='sent' LIMIT 1"))return;
     if(one(this.s,'SELECT id FROM calls WHERE createdAt>=? LIMIT 1',this.now()-1))return;
     if(!b.cancelConfirmed){
@@ -233,8 +266,8 @@ export class BillingService {
   async billingStatus(){
     const meter=one(this.s,'SELECT * FROM meter WHERE id=1'),b=state(this.s);let paymentUrl=null;
     if(b.billingInvoice&&!b.requiresManual){const invoice=await this.client.request('GET','/v1/invoices/'+b.billingInvoice);this.invoiceScope(invoice);if(invoice.status==='open'&&invoice.hosted_invoice_url){const url=new URL(invoice.hosted_invoice_url);if(url.protocol==='https:'&&url.hostname==='invoice.stripe.com')paymentUrl=url.href;}}
-    return {outstandingJpy:meter.outstanding,collectedJpy:meter.paid,waivedJpy:meter.waived,active:!!(b.active&&contractConsent(this.s,b)&&!b.collectionHold&&!b.requiresManual&&!b.cancelRequested&&b.checkedUntil>this.now()&&b.periodEnd>this.now()),billingTimezone:'UTC',cancelRequested:b.cancelRequested,hold:!!b.collectionHold,manualReconciliationRequired:!!b.requiresManual,paymentUrl};
+    return {outstandingJpy:meter.outstanding,collectedJpy:meter.paid,waivedJpy:meter.waived,active:!!(b.active&&await this.verifyContract()&&!b.collectionHold&&!b.requiresManual&&!b.cancelRequested&&b.checkedUntil>this.now()&&b.periodEnd>this.now()),billingTimezone:'UTC',cancelRequested:b.cancelRequested,hold:!!b.collectionHold,manualReconciliationRequired:!!b.requiresManual,paymentUrl};
   }
   async tick(){if(state(this.s).requiresManual)return;await this.flush();await this.finalizePending();await this.cancelAndWaive();}
-  needsAlarm(){const b=state(this.s);if(b.requiresManual)return false;return !!one(this.s,"SELECT id FROM calls WHERE sendState IN ('queued','sending') LIMIT 1")||!!b.pendingInvoice||!!(b.cancelRequested&&!b.cancelConfirmed)||!!(b.cancelConfirmed&&!b.waiverDone&&one(this.s,'SELECT outstanding FROM meter WHERE id=1').outstanding<50);}
+  needsAlarm(){const b=state(this.s);if(b.requiresManual)return false;return !!one(this.s,"SELECT id FROM calls WHERE sendState IN ('queued','sending') LIMIT 1")||!!b.pendingInvoice||!!(b.cancelRequested&&b.subscriptionId&&!b.cancelConfirmed)||!!(b.cancelConfirmed&&!b.waiverDone&&one(this.s,'SELECT outstanding FROM meter WHERE id=1').outstanding<50);}
 }

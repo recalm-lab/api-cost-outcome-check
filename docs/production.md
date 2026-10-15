@@ -84,7 +84,7 @@ storage rollback/PITRでreceipt・outbox・settlementが巻き戻ると外部送
 - `saleActive` は少なくともSTRIPE_MODE=live、API_ENABLED/BILLING_ENABLED/BILLING_VERIFIED=true、承認済み正式条件版、対象を固定したbillingConfigの検証成功を満たす場合だけtrue。それ以外はfalse。healthはStripeへ回収・契約変更を発行せず、Secretや顧客一覧を返さない。
 - statusはsandbox/preparing/live_enabled等の「設定状態」を返し、外部接続検証・個別契約の利用可否を保証する表現にしない。個別契約状態は認証付きbillingで確認する。
 - 3flagのどれかfalse、mode/key-prefix/object/terms不一致、config欠落でsaleActive=falseを確認する。BILLING_VERIFIEDは実検証の担当確認flagで、自動的にtrueにしない。
-- `TERMS_VERSION='2026-10-13'` の固定検査、公開terms、Checkout同意版、同意証跡を正式承認版に一致させる。価格・cap・未発効状態を勝手に変えない。publicの「未開始」「下書き」表示は正式発効の別承認後にのみ変更する。
+- 新規申込のTERMS_VERSIONとレビュー済み版別本文/SHA-256/不変URLの対応検査（正式レジストリは現在空）、公開terms、Checkout同意版、同意証跡を正式承認版に一致させる。価格・cap・未発効状態を勝手に変えない。publicの「未開始」「下書き」表示は正式発効の別承認後にのみ変更する。
 
 ### live準備の残件と本人入力
 

@@ -3,4 +3,4 @@
 import api,{AccountMeter} from './worker.js';
 import demo from '../public/dashboard-demo-worker.js';
 export {AccountMeter};
-export default {fetch(request,env,ctx){const path=new URL(request.url).pathname;return path==='/health'||path.startsWith('/v1/')?api.fetch(request,env,ctx):demo.fetch(request);}};
+export default {fetch(request,env,ctx){const path=new URL(request.url).pathname;return path==='/health'||path.startsWith('/v1/')||path.startsWith('/terms/')?api.fetch(request,env,ctx):demo.fetch(request);}};
