@@ -52,7 +52,7 @@ test('existing target and target appearing between reads are never overwritten',
  for(const fixture of [{existing:true},{appear:true}]){const p=mock(fixture),r=await createIsolatedClosed({...options,fetcher:p.fetcher});assert.equal(r.passed,false);assert.equal(mutations(p).length,0);assert.equal(r.created,false);}
 });
 test('403 stops immediately with no permission expansion, fallback or unsafe provider error output',async()=>{
- for(const fixture of [{denied:true},{rejectPut:true}]){const p=mock(fixture),r=await createIsolatedClosed({...options,fetcher:p.fetcher});assert.equal(r.error,'existing_permission_rejected_no_expansion');assert.equal(r.noPermissionExpansion,true);assert.ok(!JSON.stringify(r).includes(options.token));assert.ok(mutations(p).length<=1);}
+ for(const fixture of [{denied:true},{rejectPut:true}]){const p=mock(fixture),r=await createIsolatedClosed({...options,fetcher:p.fetcher});assert.equal(r.error,'existing_permission_rejected_no_expansion');assert.equal(r.noPermissionExpansion,true);assert.equal(r.lastHttpStatus,403);assert.ok(r.lastOperation.endsWith('/'+worker));assert.ok(!JSON.stringify(r).includes(options.token));assert.ok(mutations(p).length<=1);}
 });
 test('ambiguous upload is attempted once without retry, cleanup, credential renewal or enabling route',async()=>{
  const p=mock({lostPut:true}),r=await createIsolatedClosed({...options,fetcher:p.fetcher});assert.equal(r.error,'mutation_outcome_unknown_no_retry');assert.equal(mutations(p).length,1);assert.equal(r.noAutomaticRetry,true);assert.ok(!JSON.stringify(r).includes(options.token));

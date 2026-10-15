@@ -23,8 +23,10 @@ export async function createIsolatedClosed({sha,approved=false,freePlanConfirmed
   const allowed=new Set(['GET '+service,'PUT '+script,'GET '+service+'/environments/production/bindings','GET '+script+'/settings','GET '+script+'/versions','GET '+script+'/subdomain','POST '+script+'/subdomain']);
   const cf=async(path,method='GET',body,notFoundAllowed=false)=>{
    if(!allowed.has(method+' '+path)&&!(method==='GET'&&new RegExp('^'+script+'/versions/[0-9a-f-]{36}$').test(path)))stop('unapproved_operation');
+   evidence.lastOperation=method+' '+path;
    if(method!=='GET')evidence.mutationAttempts++;
    let response;try{response=await fetcher(root+path,{method,body,headers:{authorization:'Bearer '+token,...(method==='POST'?{'content-type':'application/json'}:{})},redirect:'error',signal:AbortSignal.timeout(30000)});}catch{stop(method==='GET'?'metadata_transport_failed':'mutation_outcome_unknown_no_retry');}
+   evidence.lastHttpStatus=response.status;
    if([401,403].includes(response.status))stop('existing_permission_rejected_no_expansion');
    let data;try{data=await response.json();}catch{stop(method==='GET'?'metadata_invalid':'mutation_outcome_unknown_no_retry');}
    if(notFoundAllowed&&response.status===404&&data.success===false&&Array.isArray(data.errors)&&data.errors.length&&data.errors.every(e=>Number.isSafeInteger(e.code)))return null;
@@ -52,7 +54,9 @@ export async function createIsolatedClosed({sha,approved=false,freePlanConfirmed
   const route=await cf(script+'/subdomain');
   if(route?.enabled!==true||route.previews_enabled!==false)await cf(script+'/subdomain','POST',JSON.stringify({enabled:true,previews_enabled:false}));
   const verifiedRoute=await cf(script+'/subdomain');if(verifiedRoute?.enabled!==true||verifiedRoute.previews_enabled!==false)stop('test_subdomain_unconfirmed');evidence.subdomainConfigured=true;
+  evidence.lastOperation='GET '+target.base+'/health';delete evidence.lastHttpStatus;
   let response;try{response=await fetcher(target.base+'/health',{method:'GET',redirect:'error',signal:AbortSignal.timeout(15000)});}catch{stop('public_health_unconfirmed_no_retry');}
+  evidence.lastHttpStatus=response.status;
   let health;try{health=await response.json();}catch{stop('public_health_unconfirmed_no_retry');}
   if(response.status!==200||response.headers.get('x-recalm-source-commit')!==sha||health.status!=='sandbox'||health.stripeMode!=='test'||['apiEnabled','billingEnabled','billingVerified','saleActive'].some(k=>health[k]!==false))stop('public_closed_state_unconfirmed');
   evidence.publicHealthVerified=true;
