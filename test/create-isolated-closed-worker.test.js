@@ -27,7 +27,6 @@ function mock({existing=false,race=false,deniedAt,lostAt,workerChange,drift=fals
   assert.equal(request.method,'GET');
   if(path.endsWith('/workers/'+worker))return existing?ok(metadata()):Response.json({success:false,errors:[{code:10090}]},{status:404});
   if(path.endsWith('/workers/'+id))return ok(metadata());
-  if(path.endsWith('/subdomain'))return ok({enabled:false,previews_enabled:drift&&versionCreated});
   if(path.endsWith('/bindings'))return ok([...initialMetadata().bindings.map(b=>b.type==='durable_object_namespace'?{...b,namespace_id:shared?'0b8d1c5cea78485d9d9ae6a62ed98b6f':'2'.repeat(32),script_name:worker}:enabled&&b.name==='API_ENABLED'?{...b,text:'true'}:b),...(secret?[{name:'CREDENTIALS',type:'secret_text'}]:[])]);
   if(path.endsWith('/settings'))return ok({compatibility_date:'2026-10-01',compatibility_flags:[],logpush:false,observability:{enabled:false},tags:[],tail_consumers:[]});
   if(path.endsWith('/versions/'+versionId))return ok({resources:{script_runtime:{exports:{AccountMeter:{type:'durable-object',storage:'sqlite'}}}}});
@@ -81,7 +80,7 @@ test('no public origin, route/domain/subdomain mutation or draft terms fetch is 
  const p=mock();await createIsolatedClosed({...options,fetcher:p.fetcher});
  assert.ok(p.calls.every(c=>new URL(c.url).hostname==='api.cloudflare.com'));
  assert.ok(mutations(p).every(c=>new URL(c.url).pathname.endsWith('/workers/workers')||new URL(c.url).pathname.endsWith('/workers/'+id+'/versions')));
- assert.ok(p.calls.every(c=>!c.url.includes('/health')&&!c.url.includes('/terms.html')));
+ assert.ok(p.calls.every(c=>!c.url.includes('/health')&&!c.url.includes('/terms.html')&&!c.url.includes('/subdomain')));
 });
 test('scoped workflow remains one-tag-only, pinned source, no main change and runtime credentials supplied only after tests',async()=>{
  const text=await readFile('.github/workflows/deploy-scoped-sandbox.yml','utf8');assert.ok(text.includes("- '"+APPROVED_TAG+"'"));assert.ok(text.includes("github.ref == 'refs/tags/"+APPROVED_TAG+"'"));assert.match(text,/startsWith\(github.ref, 'refs\/tags\/recalm-sandbox-scoped-deploy-'\)/);

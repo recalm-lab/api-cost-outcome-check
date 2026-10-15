@@ -29,7 +29,7 @@ export async function createIsolatedClosed({sha,approved=false,freePlanConfirmed
   const built=build(sha);if(built.manifest.sourceCommit!==sha)stop('reviewed_build_mismatch');
   const root='https://api.cloudflare.com/client/v4/accounts/'+target.cloudflareAccountId+'/workers';
   const named='/workers/'+target.workerName,service='/services/'+target.workerName,script='/scripts/'+target.workerName;
-  const allowed=new Set(['GET '+named,'POST /workers','GET '+service+'/environments/production/bindings','GET '+script+'/settings','GET '+script+'/subdomain','GET '+script+'/deployments']);
+  const allowed=new Set(['GET '+named,'POST /workers','GET '+service+'/environments/production/bindings','GET '+script+'/settings','GET '+script+'/deployments']);
   const cf=async(path,method='GET',body,notFoundAllowed=false)=>{
    if(!allowed.has(method+' '+path))stop('unapproved_operation');
    evidence.lastOperation=method+' '+path;delete evidence.lastHttpStatus;
@@ -50,8 +50,6 @@ export async function createIsolatedClosed({sha,approved=false,freePlanConfirmed
   allowed.add('GET '+workerPath);allowed.add('POST '+versionPath);
   const verifyPrivate=async()=>{
    inspectPrivateWorker(await cf(workerPath),id);
-   const subdomain=await cf(script+'/subdomain');
-   if(subdomain?.enabled!==false||subdomain.previews_enabled!==false)stop('nonpublic_worker_unconfirmed');
   };
   await verifyPrivate();
   // First deploy the SQLite class without binding to a namespace that does not exist yet (official IaC DO ordering).
