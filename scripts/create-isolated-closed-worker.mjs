@@ -21,7 +21,7 @@ function inspectPrivateWorker(worker,id){
  return worker.id;
 }
 export async function createIsolatedClosed({sha,approved=false,freePlanConfirmed=false,token,fetcher=fetch,build=buildReviewedBundle}){
- const evidence={target:target.workerName,sourceCommit:sha,created:false,deployed:false,namespaceVerified:false,nonpublicVerified:false,publicRequests:0,mutationAttempts:0};
+ const evidence={target:target.workerName,sourceCommit:sha,created:false,bootstrapDeployed:false,deployed:false,namespaceVerified:false,nonpublicVerified:false,publicRequests:0,mutationAttempts:0};
  try{
   if(sha!==REVIEWED_SOURCE)stop('reviewed_source_required');
   if(approved!==true||freePlanConfirmed!==true)stop('explicit_isolated_free_approval_required');
@@ -54,8 +54,16 @@ export async function createIsolatedClosed({sha,approved=false,freePlanConfirmed
    if(subdomain?.enabled!==false||subdomain.previews_enabled!==false)stop('nonpublic_worker_unconfirmed');
   };
   await verifyPrivate();
-  // Version configuration has no subdomain/routes/domain fields; the pre-disabled Worker settings stay in place.
-  const version=await cf(versionPath,'POST',{...initialMetadata(),modules:[{name:'worker.js',content_type:'application/javascript+module',content_base64:Buffer.from(built.bundle,'utf8').toString('base64')}]});
+  // First deploy the SQLite class without binding to a namespace that does not exist yet (official IaC DO ordering).
+  // Both intentional versions use the same pinned code; neither can change Worker URL settings.
+  const payload={...initialMetadata(),modules:[{name:'worker.js',content_type:'application/javascript+module',content_base64:Buffer.from(built.bundle,'utf8').toString('base64')}]};
+  const bootstrap=await cf(versionPath,'POST',{...payload,bindings:payload.bindings.filter(b=>b.name!=='ACCOUNTS')});
+  evidence.bootstrapDeployed=true;evidence.bundleSha256=built.manifest.bundleSha256;
+  if(!/^[0-9a-f-]{36}$/.test(bootstrap?.id||'')||!Array.isArray(bootstrap.urls)||bootstrap.urls.length)stop('nonpublic_version_unconfirmed');
+  evidence.bootstrapVersionId=bootstrap.id;
+  if(!Array.isArray(bootstrap.exports_reconciliation?.created)||bootstrap.exports_reconciliation.created.length!==1||bootstrap.exports_reconciliation.created[0]!=='AccountMeter')stop('sqlite_bootstrap_unconfirmed');
+  await verifyPrivate();
+  const version=await cf(versionPath,'POST',payload);
   evidence.deployed=true;evidence.bundleSha256=built.manifest.bundleSha256;
   if(!/^[0-9a-f-]{36}$/.test(version?.id||'')||!Array.isArray(version.urls)||version.urls.length)stop('nonpublic_version_unconfirmed');
   evidence.versionId=version.id;
@@ -74,9 +82,9 @@ export async function createIsolatedClosed({sha,approved=false,freePlanConfirmed
   const deployments=await cf(script+'/deployments'),active=deployments?.deployments?.[0]?.versions;
   if(!Array.isArray(active)||active.length!==1||active[0].version_id!==version.id||active[0].percentage!==100)stop('created_deployment_unconfirmed');
   await verifyPrivate();evidence.nonpublicVerified=true;
-  return {...evidence,passed:true,metadataOnly:true,workersDevEnabled:false,previewUrlsEnabled:false,apiEnabled:false,billingEnabled:false,billingVerified:false,secretWrites:0,stripeRequests:0,authenticatedApiRequests:0,planChanges:0,freePlanConfirmedByOwner:true};
+  return {...evidence,passed:true,metadataOnly:true,workersDevEnabled:false,previewUrlsEnabled:false,apiEnabled:false,billingEnabled:false,billingVerified:false,secretWrites:0,stripeRequests:0,authenticatedApiRequests:0,planChanges:0,freePlanConfirmedByOwner:true,freePlanEvidence:'owner_dashboard_2026-10-15',providerPlanIndependentlyVerified:false};
  }catch(error){
-  const safe=new Set(['reviewed_source_required','explicit_isolated_free_approval_required','existing_credential_missing','reviewed_build_mismatch','expected_sha_required','reviewed_checkout_required','unapproved_operation','metadata_transport_failed','mutation_outcome_unknown_no_retry','existing_permission_rejected_no_expansion','metadata_invalid','metadata_read_rejected','creation_rejected_no_retry','target_already_exists_no_overwrite','created_identity_unconfirmed','nonpublic_worker_unconfirmed','nonpublic_version_unconfirmed','created_bindings_unconfirmed','closed_flags_unconfirmed','new_namespace_unconfirmed','closed_settings_unconfirmed','created_deployment_unconfirmed','sqlite_export_unconfirmed']);
+  const safe=new Set(['reviewed_source_required','explicit_isolated_free_approval_required','existing_credential_missing','reviewed_build_mismatch','expected_sha_required','reviewed_checkout_required','unapproved_operation','metadata_transport_failed','mutation_outcome_unknown_no_retry','existing_permission_rejected_no_expansion','metadata_invalid','metadata_read_rejected','creation_rejected_no_retry','target_already_exists_no_overwrite','created_identity_unconfirmed','nonpublic_worker_unconfirmed','nonpublic_version_unconfirmed','sqlite_bootstrap_unconfirmed','created_bindings_unconfirmed','closed_flags_unconfirmed','new_namespace_unconfirmed','closed_settings_unconfirmed','created_deployment_unconfirmed','sqlite_export_unconfirmed']);
   return {...evidence,passed:false,error:safe.has(error?.message)?error.message:'isolated_creation_failed',noAutomaticRetry:true,noPermissionExpansion:true};
  }
 }

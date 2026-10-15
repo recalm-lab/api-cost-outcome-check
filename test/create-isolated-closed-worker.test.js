@@ -4,8 +4,8 @@ import {readFile} from 'node:fs/promises';
 import {createIsolatedClosed,initialMetadata,privateWorkerSettings,REVIEWED_SOURCE,APPROVED_TAG} from '../scripts/create-isolated-closed-worker.mjs';
 const worker='recalm-api-cost-check-isolated-test',id='3'.repeat(32),versionId='22222222-2222-4222-8222-222222222222';
 const options={sha:REVIEWED_SOURCE,approved:true,freePlanConfirmed:true,token:'synthetic-cf-token',build:sha=>({bundle:'synthetic-reviewed-bundle containing /terms.html draft',manifest:{sourceCommit:sha,bundleSha256:'a'.repeat(64)}})};
-function mock({existing=false,race=false,deniedAt,lostAt,workerChange,drift=false,shared=false,secret=false,enabled=false,urls=[],badDeployment=false}={}){
- let created=false,versionCreated=false;const calls=[];let creation,versionBody;
+function mock({existing=false,race=false,deniedAt,lostAt,workerChange,drift=false,shared=false,secret=false,enabled=false,urls=[],badDeployment=false,missingBootstrap=false}={}){
+ let created=false,versionCreated=false;const calls=[],versions=[];let creation,versionBody;
  const fetcher=async(url,request)=>{
   calls.push({url,method:request.method});assert.equal(request.redirect,'error');
   const u=new URL(url),path=u.pathname;
@@ -21,7 +21,8 @@ function mock({existing=false,race=false,deniedAt,lostAt,workerChange,drift=fals
   if(request.method==='POST'){
    const body=JSON.parse(request.body);
    if(isCreate){creation=body;assert.deepEqual(body,privateWorkerSettings());assert.equal(Object.hasOwn(body,'modules'),false);if(race)return Response.json({success:false,errors:[{code:10000}]},{status:409});created=true;return ok(metadata());}
-   assert.equal(isVersion,true);assert.equal(u.search,'?deploy=true');assert.equal(created,true);versionBody=body;versionCreated=true;return ok({id:versionId,urls});
+   assert.equal(isVersion,true);assert.equal(u.search,'?deploy=true');assert.equal(created,true);versions.push(body);versionBody=body;versionCreated=true;
+   return ok({id:versions.length===1?'11111111-1111-4111-8111-111111111111':versionId,urls,exports_reconciliation:{created:versions.length===1&&!missingBootstrap?['AccountMeter']:[]}});
   }
   assert.equal(request.method,'GET');
   if(path.endsWith('/workers/'+worker))return existing?ok(metadata()):Response.json({success:false,errors:[{code:10090}]},{status:404});
@@ -33,7 +34,7 @@ function mock({existing=false,race=false,deniedAt,lostAt,workerChange,drift=fals
   if(path.endsWith('/deployments'))return ok({deployments:[{versions:[{version_id:badDeployment?'11111111-1111-4111-8111-111111111111':versionId,percentage:100}]}]});
   throw Error('unexpected_mock_endpoint');
  };
- return {fetcher,calls,get creation(){return creation;},get versionBody(){return versionBody;}};
+ return {fetcher,calls,versions,get creation(){return creation;},get versionBody(){return versionBody;}};
 }
 const mutations=p=>p.calls.filter(c=>c.method!=='GET');
 test('private initial deployment disables both URL types before any code exists, deploys pinned bytes and verifies SQLite using metadata only',async()=>{
@@ -42,7 +43,8 @@ test('private initial deployment disables both URL types before any code exists,
  assert.deepEqual(p.versionBody.exports,{AccountMeter:{type:'durable-object',storage:'sqlite'}});assert.deepEqual(p.versionBody.bindings.find(b=>b.name==='ACCOUNTS'),{name:'ACCOUNTS',type:'durable_object_namespace',class_name:'AccountMeter'});
  assert.ok(p.versionBody.bindings.every(b=>!b.type.startsWith('secret')));assert.equal(p.versionBody.bindings.find(b=>b.name==='BILLING_ACCOUNTS').text,'{}');
  for(const name of ['API_ENABLED','BILLING_ENABLED','BILLING_VERIFIED'])assert.equal(p.versionBody.bindings.find(b=>b.name===name).text,'false');
- assert.deepEqual(mutations(p).map(c=>c.method),['POST','POST']);assert.ok(!JSON.stringify(r).includes(options.token));
+ assert.deepEqual(mutations(p).map(c=>c.method),['POST','POST','POST']);assert.ok(!JSON.stringify(r).includes(options.token));
+ assert.equal(r.providerPlanIndependentlyVerified,false);assert.equal(r.freePlanEvidence,'owner_dashboard_2026-10-15');
  for(const forbidden of ['routes','route','domain','domains','subdomain'])assert.equal(Object.hasOwn(p.versionBody,forbidden),false);
 });
 test('unapproved source, approval, cost or credential stops before build and network',async()=>{
@@ -62,10 +64,18 @@ test('ambiguous create/version outcome is never retried, deleted or replaced thr
  for(const lostAt of ['create','version']){const p=mock({lostAt}),r=await createIsolatedClosed({...options,fetcher:p.fetcher});assert.equal(r.error,'mutation_outcome_unknown_no_retry');assert.equal(r.noAutomaticRetry,true);assert.equal(mutations(p).length,lostAt==='create'?1:2);assert.ok(p.calls.every(c=>c.method==='GET'||c.method==='POST'));}
 });
 test('shared namespace, unexpected secret or enabled flag rejects metadata verification without public requests',async()=>{
- for(const fixture of [{shared:true},{secret:true},{enabled:true}]){const p=mock(fixture),r=await createIsolatedClosed({...options,fetcher:p.fetcher});assert.equal(r.created,true);assert.equal(r.deployed,true);assert.equal(r.passed,false);assert.equal(r.publicRequests,0);assert.equal(mutations(p).length,2);}
+ for(const fixture of [{shared:true},{secret:true},{enabled:true}]){const p=mock(fixture),r=await createIsolatedClosed({...options,fetcher:p.fetcher});assert.equal(r.created,true);assert.equal(r.deployed,true);assert.equal(r.passed,false);assert.equal(r.publicRequests,0);assert.equal(mutations(p).length,3);}
 });
 test('routable version URLs, public-setting drift and incorrect deployment stop without any enabling operation',async()=>{
- for(const fixture of [{urls:['https://unapproved.invalid']},{drift:true},{badDeployment:true}]){const p=mock(fixture),r=await createIsolatedClosed({...options,fetcher:p.fetcher});assert.equal(r.created,true);assert.equal(r.passed,false);assert.equal(r.publicRequests,0);assert.equal(mutations(p).length,2);}
+ for(const fixture of [{urls:['https://unapproved.invalid']},{drift:true},{badDeployment:true}]){const p=mock(fixture),r=await createIsolatedClosed({...options,fetcher:p.fetcher});assert.equal(r.created,true);assert.equal(r.passed,false);assert.equal(r.publicRequests,0);assert.equal(mutations(p).length,fixture.badDeployment?3:2);}
+});
+test('SQLite namespace is deployed without a binding first, then the identical code attaches the new self binding',async()=>{
+ const p=mock(),r=await createIsolatedClosed({...options,fetcher:p.fetcher});assert.equal(r.passed,true);assert.equal(r.bootstrapDeployed,true);assert.equal(p.versions.length,2);
+ assert.equal(p.versions[0].bindings.some(b=>b.name==='ACCOUNTS'),false);assert.deepEqual(p.versions[0].modules,p.versions[1].modules);assert.deepEqual(p.versions[0].exports,p.versions[1].exports);
+ assert.equal(p.versions[1].bindings.find(b=>b.name==='ACCOUNTS').class_name,'AccountMeter');
+});
+test('missing initial SQLite creation evidence stops privately before attaching any Durable Object binding',async()=>{
+ const p=mock({missingBootstrap:true}),r=await createIsolatedClosed({...options,fetcher:p.fetcher});assert.equal(r.error,'sqlite_bootstrap_unconfirmed');assert.equal(r.bootstrapDeployed,true);assert.equal(r.deployed,false);assert.equal(p.versions.length,1);assert.equal(mutations(p).length,2);
 });
 test('no public origin, route/domain/subdomain mutation or draft terms fetch is present in the metadata-only execution path',async()=>{
  const p=mock();await createIsolatedClosed({...options,fetcher:p.fetcher});

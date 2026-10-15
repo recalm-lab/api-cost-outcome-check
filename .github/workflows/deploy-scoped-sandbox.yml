@@ -65,6 +65,7 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           RECALM_ISOLATED_CREATE_APPROVED: 'true'
+          # Owner's 2026-10-15 Free-plan dashboard evidence; not an API plan/usage inspection.
           RECALM_NO_EXTRA_COST_CONFIRMED: 'true'
         run: node ../scripts/create-isolated-closed-worker.mjs 4405833bef84bf6a891ef165b5fdbd106574dbd4
       # No main registration, Secret values/operations, Stripe calls, credentials, customer or lifecycle work.
