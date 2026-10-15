@@ -94,5 +94,40 @@
         "kind": "usage"
       }
     ]
+  },
+  "duplicate": {
+    "scope": "synthetic-duplicate",
+    "successCriterion": "owner-usable-artifact",
+    "tasks": [
+      {
+        "id": "F",
+        "outcome": "success"
+      }
+    ],
+    "attempts": [
+      {
+        "requestId": "F1",
+        "taskId": "F",
+        "outcome": "success"
+      }
+    ],
+    "bills": [
+      {
+        "id": "b1",
+        "requestId": "F1",
+        "amount": 10,
+        "unit": "money:USD:2",
+        "evidence": "confirmed",
+        "kind": "usage"
+      },
+      {
+        "id": "b2",
+        "requestId": "F1",
+        "amount": 10,
+        "unit": "money:USD:2",
+        "evidence": "confirmed",
+        "kind": "usage"
+      }
+    ]
   }
 }

@@ -11,7 +11,7 @@ test('static assets serve demo, OpenAPI, headers and no operational API',async()
     assert.ok(page.headers.get('content-security-policy').includes("form-action 'none'"));
     const api=await mf.dispatchFetch('https://demo/openapi.json');assert.equal(api.status,200);assert.equal((await api.json()).openapi,'3.1.0');
     assert.notEqual((await mf.dispatchFetch('https://demo/v1/check',{method:'POST',body:'{}'})).status,200);
-    const examples=await (await mf.dispatchFetch('https://demo/examples.json')).json();assert.equal(Object.keys(examples).length,3);for(const input of Object.values(examples)) assert.equal(reconcile(input).algorithmVersion,'1');
+    const examples=await (await mf.dispatchFetch('https://demo/examples.json')).json();assert.equal(Object.keys(examples).length,4);for(const input of Object.values(examples)) assert.equal(reconcile(input).algorithmVersion,'1');
     assert.equal(await readFile('public/reconcile.js','utf8'),await readFile('src/reconcile.js','utf8'));
   }finally{await mf.dispose();}
 });
