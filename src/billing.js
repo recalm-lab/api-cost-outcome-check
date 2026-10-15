@@ -3,6 +3,7 @@ import {one,state,saveState,contractConsent} from './meter.js';
 import {configuredTerms,verifyTerms} from './terms.js';
 const rows=(s,sql,...args)=>[...s.sql.exec(sql,...args)];
 const retryWindow=23*3600;
+const checkoutRecoverable=['checkout_consent_unconfirmed','checkout_mismatch','checkout_confirmation_pending','stripe_transport_error','stripe_upstream_unavailable','stripe_rate_limited','stripe_invalid_json'];
 // Only the documented no-currency cash state is eligible for small-invoice carry/waiver.
 // Currency maps, including zero balances, remain blocked until lifecycle behavior is verified.
 function emptyCashBalance(customer,customerId,livemode){
@@ -23,7 +24,10 @@ export async function verifyCatalog(client){
 
 export class BillingService {
   constructor(storage,client,customerId,clock=()=>Math.floor(Date.now()/1000)){this.s=storage;this.client=client;this.c=client.config;this.customerId=customerId;this.now=clock;}
-  hold(reason='billing_hold'){const b=state(this.s);saveState(this.s,{...b,active:false,collectionHold:true,holdReason:reason,requiresManual:b.requiresManual||['meter_delivery_unknown','meter_timestamp_expired','waiver_delivery_unknown','invoice_reconciliation_unknown','meter_error'].includes(reason)});}
+  hold(reason='billing_hold',source='billing'){
+    const b=state(this.s),preserve=b.collectionHold&&b.holdReason&&!(b.holdSource==='checkout'&&checkoutRecoverable.includes(b.holdReason));
+    saveState(this.s,{...b,active:false,collectionHold:true,holdReason:preserve?b.holdReason:reason,holdSource:preserve?(b.holdSource||'billing'):source,requiresManual:b.requiresManual||['meter_delivery_unknown','meter_timestamp_expired','waiver_delivery_unknown','invoice_reconciliation_unknown','meter_error'].includes(reason)});
+  }
   async verifyCatalog(){await verifyCatalog(this.client);}
   async storedTerms(version,sha256,url){
     const document=one(this.s,'SELECT * FROM terms_documents WHERE version=?',version||'');
@@ -135,8 +139,8 @@ export class BillingService {
         if(session.id!==object.id||!action||objectId(session.customer)!==this.customerId||session.livemode!==this.c.livemode||session.mode!=='subscription')throw new BillingError('checkout_mismatch');
         if(['checkout.session.completed','checkout.session.async_payment_succeeded'].includes(event.type)&&session.status==='complete'&&['paid','no_payment_required'].includes(session.payment_status)){
           await this.confirmConsent(session,action);
-          const b=state(this.s),recoverable=[undefined,'checkout_consent_unconfirmed','checkout_mismatch','checkout_confirmation_pending','stripe_transport_error','stripe_upstream_unavailable','stripe_rate_limited','stripe_invalid_json'];
-          if(!b.requiresManual&&!b.cancelRequested&&!b.pendingInvoice&&!one(this.s,"SELECT id FROM invoices WHERE status!='paid' LIMIT 1")&&recoverable.includes(b.holdReason))saveState(this.s,{...b,collectionHold:false,holdReason:undefined});
+          const b=state(this.s),initialOrCheckout=b.holdReason===undefined||b.holdSource==='checkout'&&checkoutRecoverable.includes(b.holdReason);
+          if(!b.requiresManual&&!b.cancelRequested&&!b.pendingInvoice&&!one(this.s,"SELECT id FROM invoices WHERE status!='paid' LIMIT 1")&&initialOrCheckout)saveState(this.s,{...b,collectionHold:false,holdReason:undefined,holdSource:undefined});
           await this.refreshSubscription(objectId(session.subscription));
         }else if(event.type==='checkout.session.async_payment_failed')this.hold('payment_failed');
       }else if(event.type.startsWith('customer.subscription.')){
@@ -146,7 +150,7 @@ export class BillingService {
         await this.observeInvoice(invoice,true);
       }
       this.s.sql.exec('INSERT INTO webhooks VALUES (?,?)',event.id,this.now());
-    }catch(error){this.hold(error instanceof BillingError?error.message:event.type.startsWith('checkout.session.')&&!state(this.s).subscriptionId?'checkout_confirmation_pending':'billing_hold');throw error;}
+    }catch(error){this.hold(error instanceof BillingError?error.message:event.type.startsWith('checkout.session.')&&!state(this.s).subscriptionId?'checkout_confirmation_pending':'billing_hold',event.type.startsWith('checkout.session.')?'checkout':'billing');throw error;}
   }
   invoiceScope(invoice){
     const b=state(this.s),sub=objectId(invoice.parent?.subscription_details?.subscription||invoice.subscription);

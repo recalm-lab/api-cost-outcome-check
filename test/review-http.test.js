@@ -89,16 +89,17 @@ test('review HTTP: checkout expires at the exact saved second; old bytes survive
 });
 
 test('review HTTP: subscription first remains held until paid Checkout confirmation; manual and invoice holds never clear',async()=>{
- for(const hold of ['initial','manual','invoice']){
-  const mock=stripeMock();let paid=false;
-  const provider={async fetch(request){if(new URL(request.url).pathname==='/v1/invoices/in_anomaly')return Response.json({id:'in_anomaly',customer:'cus_test',livemode:false,currency:'usd',subscription:'sub_test'});const response=await mock.fetch(request);if(request.method==='GET'&&new URL(request.url).pathname==='/v1/checkout/sessions/cs_test'&&!paid){const session=await response.json();return Response.json({...session,payment_status:'unpaid'});}return response;}};
+ for(const hold of ['initial','manual','invoice','invoice-transport']){
+  const mock=stripeMock();let paid=false,consent=true;
+  const provider={async fetch(request){if(new URL(request.url).pathname==='/v1/invoices/in_anomaly')return hold==='invoice-transport'?Response.json({error:'synthetic_unavailable'},{status:503}):Response.json({id:'in_anomaly',customer:'cus_test',livemode:false,currency:'usd',subscription:'sub_test'});const response=await mock.fetch(request);if(request.method==='GET'&&new URL(request.url).pathname==='/v1/checkout/sessions/cs_test'){const session=await response.json();return Response.json({...session,payment_status:paid?session.payment_status:'unpaid',consent:consent?session.consent:null});}return response;}};
   const mf=runtime(false,{},provider);
   try{
    assert.equal((await checkout(mf)).status,200);paid=true;
    assert.equal((await notify(mf,'evt_order_sub','customer.subscription.created',{id:'sub_test',customer:'cus_test'})).status,200);
    assert.equal((await billing(mf)).active,false);assert.equal((await billing(mf)).hold,true);assert.equal((await check(mf)).status,503);
    if(hold==='manual')assert.equal((await notify(mf,'evt_order_manual','v1.billing.meter.error_report_triggered')).status,200);
-   if(hold==='invoice')assert.equal((await notify(mf,'evt_order_invoice','invoice.payment_failed',{id:'in_anomaly',customer:'cus_test'})).status,503);
+   if(hold.startsWith('invoice'))assert.equal((await notify(mf,'evt_order_invoice','invoice.payment_failed',{id:'in_anomaly',customer:'cus_test'})).status,503);
+   if(hold!=='initial'){consent=false;assert.equal((await notify(mf,'evt_order_bad_consent')).status,503);consent=true;}
    paid=false;assert.equal((await notify(mf,'evt_order_unpaid')).status,200);assert.equal((await check(mf)).status,503);
    paid=true;assert.equal((await notify(mf,'evt_order_paid','checkout.session.async_payment_succeeded')).status,200);
    assert.equal((await billing(mf)).active,hold==='initial');assert.equal((await check(mf)).status,hold==='initial'?200:503);
