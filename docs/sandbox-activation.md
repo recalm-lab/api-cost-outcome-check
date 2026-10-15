@@ -4,6 +4,16 @@
 
 GitHubにはCLOUDFLARE_API_TOKENとRECALM_TEST_API_KEYのSecret名があるが、ローカル注入はなく、値・期限・顧客対応は未確認。旧専用accountには解約済み証跡がある。追加処理の実接続には、本番から独立したtest実行先、既存test秘密値をその場で利用できる経路、有効な専用account/credential、最新版コードと合成TERMS_DOCUMENTSの対応確認が必要。現在の許可範囲では新規作成・秘密移送・本番切替を行わず停止する。
 
+## 隔離test経路のコード準備のみ（未実行）
+
+手動専用 `.github/workflows/isolated-test-readiness.yml` と `scripts/isolated-test-readiness.mjs` を準備した。対象候補は `recalm-api-cost-check-isolated-test`（未作成）、固定sandbox Stripe account `acct_1TqptzD1AvIZkMfK`、論理account `sandbox-isolated-20261015`。既存live Worker/Stripe account/namespaceを拒否し、2版のTEST ONLY本文・SHA-256・不変URLを生成/照合する。通常push/PRではこのworkflowは起動せず、planは秘密/通信不要。
+
+後日の `verify-read-only` は、費用確認と未使用の承認済みtest customer IDを必須にし、既存 `CLOUDFLARE_API_TOKEN` で対象metadataだけGET、mode/IDs/namespace分離/単一配置/SQLite/source/合成規約を照合後、既存 `RECALM_TEST_API_KEY` を対象test APIのGET認証だけに使用する。値の取得/表示/保存/移送、Checkout/cancel/usageのPOST、Stripe直接操作、Worker/credential/権限/plan作成・更新はしない。対象不存在、tokenの403、credentialの401/失効/無効、解約済み・未精算・manual holdでは止まり、再生成やscope拡張にfallbackしない。結果は新シナリオの実接続完了を意味せず、Stripe customer履歴や実際の料金planを独立検証したとも扱わない。
+
+実起動前にCloudflareの対象Workers/DOのFree plan・使用量/上限、GitHubのPUBLIC repo/標準ubuntu runnerを確認し、追加費用なしを手動確認する。スクリプトはpaid/freeを推測しない。GitHub標準runnerの公開repoでの扱いは[公式課金説明](https://docs.github.com/en/billing/concepts/product-billing/github-actions)を参照。artifact/cache保存は追加していない。GitHubの[手動起動要件](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow)によりworkflowは既定ブランチにも必要だが、今回はmain登録/マージ・起動を行わない。対象資源と有効な既存credentialがない現状ではplanまでで、配備・scenario準備は別途具体的な承認後とする。
+
+## 以下は初回sandboxの履歴手順（現在は実行しない）
+
 対象は**既存recalm-api-cost-checkだけ**。本番Stripe請求を有効にしない。初回は最新版branchから本体を配置する。static Dashboard bundleは実APIではなく、secretを入力してもAPIへ切り替わらない。
 
 ## 非秘密値（通常vars）

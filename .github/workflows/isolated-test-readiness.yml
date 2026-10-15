@@ -1,0 +1,67 @@
+name: Prepare isolated test readiness manually
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        type: choice
+        options: [plan, verify-read-only]
+        default: plan
+        required: true
+      reviewed_sha:
+        description: Exact reviewed SHA of the selected workflow revision
+        type: string
+        required: true
+      approved_test_customer:
+        description: Existing dedicated unused sandbox customer ID; required only for verify-read-only
+        type: string
+        required: false
+      no_extra_cost_confirmed:
+        description: Checked Cloudflare Free Workers/DO limits and public standard-runner use; no paid upgrade
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: recalm-isolated-test-readiness
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: github.repository == 'recalm-lab/api-cost-outcome-check' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Validate manual selection before checking out code or providing credentials
+        env:
+          SELECTED_SHA: ${{ inputs.reviewed_sha }}
+          ACTION: ${{ inputs.action }}
+          COST_CONFIRMED: ${{ inputs.no_extra_cost_confirmed }}
+        run: |
+          [[ "$SELECTED_SHA" =~ ^[0-9a-f]{40}$ && "$SELECTED_SHA" == "$GITHUB_SHA" ]] || exit 1
+          [[ "$ACTION" == plan || "$ACTION" == verify-read-only ]] || exit 1
+          if [[ "$ACTION" == verify-read-only && "$COST_CONFIRMED" != true ]]; then exit 1; fi
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Verify all synthetic tests without runtime credentials
+        run: |
+          npm ci --ignore-scripts
+          npm test
+      - name: Print non-secret preparation only
+        env:
+          REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+        run: node scripts/isolated-test-readiness.mjs plan "$REVIEWED_SHA"
+      - name: Read isolated test metadata and existing credential status only
+        if: inputs.action == 'verify-read-only' && inputs.no_extra_cost_confirmed == true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          RECALM_TEST_API_KEY: ${{ secrets.RECALM_TEST_API_KEY }}
+          RECALM_APPROVED_TEST_CUSTOMER: ${{ inputs.approved_test_customer }}
+          RECALM_NO_EXTRA_COST_CONFIRMED: 'true'
+          REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+        run: node scripts/isolated-test-readiness.mjs verify-read-only "$REVIEWED_SHA"
+      # No resource, Secret, permission, flag, plan, deployment or lifecycle mutations.
+      # No artifacts, caches, credential renewal or automatic fallback.
